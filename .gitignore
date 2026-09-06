@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.venv-ryu/
+.pytest_cache/
+.ruff_cache/
+
+# Build artifacts
+*.json.p4info
+*.bmv2.json
+build/
+
+# Experiment outputs & captures — never committed (design.md: corpus lives in LFS/external storage)
+results/
+*.pcap
+*.pcapng
+
+# Editor/OS
+.DS_Store
+.idea/
+.vscode/

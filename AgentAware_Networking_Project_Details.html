@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent-Aware Networking — Project Details</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#181818; --clay:#C15F3C; --clay-lt:#F5E9E3;
+    --muted:#6b6b6b; --line:#d9d2cc; --box:#b8aca2;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; padding:38px 30px 60px;
+    background:#fff; color:var(--ink);
+    font-family:"Source Serif 4",Georgia,serif;
+    font-size:10.6pt; line-height:1.52;
+    max-width:820px; margin-inline:auto;
+    -webkit-text-size-adjust:100%;
+  }
+  h1,h2,h3,h4,th,.grot{font-family:Archivo,"Helvetica Neue",Arial,sans-serif}
+  h1{font-size:21pt; font-weight:600; line-height:1.18; margin:0 0 2px}
+  .subtitle{font-family:Archivo,sans-serif; font-weight:500; font-size:12.5pt;
+    line-height:1.35; color:var(--muted); margin:0 0 10px}
+  .meta{font-style:italic; color:var(--muted); font-size:10pt; margin:0 0 12px}
+  .rule{border:0; border-top:1px solid var(--clay); margin:0 0 6px}
+  h2{font-size:13.2pt; font-weight:600; color:var(--clay); margin:26px 0 7px}
+  h3{font-size:11pt; font-weight:500; margin:18px 0 4px}
+  p{margin:0 0 8px; text-align:justify}
+  ul,ol{margin:0 0 9px; padding-left:20px}
+  li{margin:0 0 5px; text-align:justify}
+  table{width:100%; border-collapse:collapse; margin:8px 0 12px; font-size:9pt}
+  th{background:var(--clay-lt); text-align:left; font-weight:500; font-size:8.8pt;
+     padding:5px 6px; border-bottom:1.2px solid var(--clay)}
+  td{padding:5px 6px; border-bottom:.6px solid var(--line); vertical-align:top}
+  .chk{list-style:none; padding-left:0}
+  .chk li{position:relative; padding-left:22px; margin-bottom:5px; text-align:left}
+  .chk li::before{content:""; position:absolute; left:0; top:2px;
+    width:11px; height:11px; border:1px solid var(--box); border-radius:2px}
+  .note{font-style:italic; color:var(--muted); font-size:9.8pt}
+  .foot{border-top:.6px solid var(--line); margin-top:22px; padding-top:8px}
+  .hint{background:var(--clay-lt); border-left:3px solid var(--clay);
+    padding:10px 14px; margin:0 0 22px; font-size:9.6pt; border-radius:2px}
+  @media print{
+    .hint{display:none}
+    body{padding:0; font-size:10pt; max-width:none}
+    @page{size:A4; margin:16mm 18mm}
+    h2{page-break-after:avoid} h3{page-break-after:avoid}
+    table,ul,ol{page-break-inside:avoid}
+    tr{page-break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+
+<div class="hint"><strong>To save as PDF:</strong> press Ctrl+P (Windows) or Cmd+P (Mac) and choose
+“Save as PDF” as the destination. On mobile, use the browser’s Share → Print → Save as PDF.
+This box won’t appear in the printed file.</div>
+
+<h1>Agent-Aware Networking</h1>
+<p class="subtitle">In-Network Classification and Differentiated Transport QoS for AI-Agent Traffic on a Programmable Data Plane</p>
+<p class="meta">BCSE308L/P Computer Networks · Research Project — Detailed Project Description · August 2026<br>
+Goal: working prototype + Mininet/BMv2 evaluation + IEEE-format research paper for publication</p>
+<hr class="rule">
+
+<h2>1 · Project Overview</h2>
+<p><strong>One-liner.</strong> A network switch (P4/BMv2 or eBPF pipeline) that recognizes AI-agent traffic — MCP tool-calls, A2A flows, agentic browsers — per-packet at line rate and, in the same forwarding pipeline, assigns it a dedicated transport treatment: its own queue, scheduler share, DSCP/ECN marking, and admission control. Bursty, machine-paced agent flows get a controlled lane instead of degrading human interactive traffic.</p>
+<p><strong>Outcome.</strong> A research paper (IEEE format) presenting the system, a working prototype, and a four-baseline experimental evaluation in Mininet/BMv2 — targeting publication. The paper’s headline result: measurable tail-latency protection for human traffic under agent-traffic bursts (target ≥30% p99 reduction) at negligible data-plane cost (&lt;5% added per-packet latency).</p>
+<p><strong>Why now.</strong> AI-agent traffic is a 2025–2026 phenomenon with verified data behind it, the research community has only reached the detection stage, and no existing work performs agent classification in the forwarding path or couples it to QoS — a clear, defensible research contribution.</p>
+
+<h2>2 · Motivation (verified statistics)</h2>
+<p>The internet’s traffic mix has structurally changed. All figures verified against primary sources (Aug 2026); phrasing reflects the exact scope of each claim.</p>
+<ul>
+<li><strong>53% of internet traffic is automated</strong> (Thales 2026 Bad Bot Report, 13th edition, full-year 2025 data): bad bots 40% (up 3 points YoY), benign automation 13%, human traffic down to 47% from 49%.</li>
+<li><strong>AI agents have emerged as a third traffic category</strong> alongside traditional good and bad bots — interacting directly with applications and APIs, running real browsers with valid fingerprints and human-pattern interaction, defeating classic detection.</li>
+<li><strong>AI-driven bot attacks surged 12.5× in 2025</strong> vs 2024 — daily blocked attacks rose from 2 million to 25 million. (Scope note: 12.5× refers to attack volume specifically, not all agent traffic.)</li>
+<li>Operators and standards bodies are actively discussing differentiated treatment of AI/agent traffic; a concrete citation will be pinned before paper submission.</li>
+</ul>
+<p>The concrete harm: an agent fires 50 parallel MCP tool-calls across the same link as a human video call. Every switch on the path sees 51 indistinguishable TLS flows on port 443 and queues them together; the human’s packets wait behind the machine-paced burst, and that queuing delay <em>is</em> the p99 latency spike. The network cannot fix what it cannot distinguish.</p>
+
+<h2>3 · Problem Statement</h2>
+<p>Existing QoS machinery (DiffServ, port/application-based classification, endpoint-set DSCP) cannot recognize AI-agent traffic: agents use real browsers, valid TLS fingerprints, and standard ports. Existing agent-detection solutions (Cloudflare signed agents / Web Bot Auth, DataDome Agent Trust, Akamai) operate only at the HTTP/CDN edge — they terminate TLS, see only traffic routed through them, react on request timescales, and offer only allow / block / rate-limit / monetize actions. <strong>No mechanism exists inside the network forwarding path that identifies agent traffic per-packet at line rate and gives it differentiated transport service.</strong></p>
+
+<h2>4 · Core Concepts</h2>
+<h3>4.1 · Forwarding plane vs control plane vs application edge</h3>
+<p>Every switch/router splits into a <strong>control plane</strong> (the software brain: routing protocols, controller interaction, table updates; millisecond–second timescales) and a <strong>forwarding plane</strong> (data plane — the pipeline every packet physically traverses: parse headers → match tables → apply actions → queue to output port; nanosecond–microsecond timescales). The <strong>application edge</strong> (WAF/CDN/proxy) is a different location entirely: it terminates TLS and inspects HTTP requests after the fact. In this project the classification decision is made in the forwarding plane — per packet, at line rate, inside the device, for any traffic crossing it. P4 is to switches what code is to CPUs: we are not building a switch; we are writing the program a programmable switch runs. BMv2 is the software emulator of such a switch used for development and evaluation.</p>
+<h3>4.2 · Transport QoS as the action space</h3>
+<p>Once a flow is labeled, the action is a <em>service treatment</em>, not an access decision: DSCP/traffic-class rewrite; assignment to a per-class queue with a bounded scheduler weight; a class-specific ECN marking profile (shaping how senders’ congestion control backs off); and admission control / rate shaping of new agent flows under congestion — including a <strong>human-traffic-protection mode</strong> that caps the aggregate agent share of a congested link. Agent traffic is never rejected; it is isolated into an engineered lane. Misclassification therefore degrades service class rather than blocking anyone — a graceful failure mode no allow/block system offers.</p>
+<h3>4.3 · The coupling is the contribution</h3>
+<p>Neither half is new alone: agent fingerprinting exists (application layer), in-network ML on P4 exists (Mousika, IIsy), and QoS queues are decades old. What does not exist anywhere is the coupling: <strong>the switch itself recognizes “this is an AI-agent flow” and, in the same pipeline pass, changes how that packet is serviced.</strong> The deployment property that follows is single-box incremental deployability: no internet-wide adoption, no new protocol, no third-party cooperation — one device at a choke point (campus/enterprise gateway, datacenter leaf, the switch fronting an API/LLM-serving cluster) benefits its domain immediately. One honest scope note for the paper: DSCP markings are routinely bleached at AS boundaries, so the QoS treatment is meaningful within the deploying domain — which is where the queues and the congestion live anyway.</p>
+
+<h2>5 · Literature Review and Research Gap</h2>
+<p>The relevant literature falls into three streams: (A) identifying agent/bot traffic, (B) running ML classification inside programmable data planes, and (C) networking research around agent protocols. Each stream supplies a building block; none performs agent classification in the forwarding path, and none couples agent identity to a QoS action. Entries below were verified against primary sources (Aug 2026).</p>
+
+<h3>5.1 · Stream A — Agent and bot traffic identification (application layer)</h3>
+<table>
+<tr><th>Work</th><th>Focus</th><th>Key result</th><th>Limitation w.r.t. this project</th></tr>
+<tr><td>Whose Agent Are You? (arXiv 2606.20910)</td><td>Server-side multi-layer fingerprinting</td><td>97% attribution across six agent frameworks (AutoGen, Browser Use, Claude, Gemini, Operator, Skyvern) by fusing TLS/HTTP2/header/timing with browser-behavior signals</td><td>Depends on browser-level signals invisible mid-path; detection-only; instrumented-domain vantage</td></tr>
+<tr><td>Nobody Knows You’re an LLM Bot (arXiv 2606.30119)</td><td>Layer-wise ablation of agent attribution</td><td>Network layer alone is weak: IP-only ≈60%, JA4-only ≈45% for multi-class agent attribution; 21 distinct JA4 values observed</td><td>Confirms the open problem this project attacks; offline analysis; no enforcement mechanism</td></tr>
+<tr><td>When Handshakes Tell the Truth (arXiv 2602.09606)</td><td>JA4/TLS bot detection</td><td>CatBoost on JA4DB features: AUC 0.998, 98.6% accuracy — binary bot-vs-human from the handshake alone</td><td>Binary decision only; no agent classes; offline; no action coupling</td></tr>
+<tr><td>AgentPrint (arXiv 2510.07176)</td><td>Encrypted-traffic fingerprints of LLM agents</td><td>F1 0.866 agent identification from timing/volume patterns on the user–agent link; infers user attributes (top-3 69–74%)</td><td>Framed as a passive privacy attack; single vantage; identification, not service treatment</td></tr>
+<tr><td>Known By Their Actions (arXiv 2605.14786)</td><td>LLM browser-agent fingerprinting via UI traces</td><td>Model-level attribution of browser agents from interaction/UI traces</td><td>UI-layer signals; not network-visible at all</td></tr>
+<tr><td>Web Bot Auth (RFC 9421; Cloudflare signed agents)</td><td>Cooperative agent identification</td><td>Cryptographic HTTP message signatures let declared agents authenticate to origins</td><td>HTTP-layer, adoption-dependent, invisible mid-path under TLS; action space is allow/block</td></tr>
+<tr><td>Thales 2026 Bad Bot Report</td><td>Internet-scale measurement</td><td>53% automated traffic; AI agents as a third category; 12.5× surge in AI-driven attacks</td><td>Motivating measurement; proposes governance, no network mechanism</td></tr>
+</table>
+
+<h3>5.2 · Stream B — In-network ML on programmable data planes</h3>
+<table>
+<tr><th>Work</th><th>Focus</th><th>Key result</th><th>Limitation w.r.t. this project</th></tr>
+<tr><td>IIsy / “Do Switches Dream of ML?” (HotNets’19 line)</td><td>ML → match-action mapping</td><td>Pioneered mapping trained classical models (trees, SVM, NB, k-means) into switch match-action pipelines</td><td>Generic classification tasks; never agent traffic; no QoS coupling</td></tr>
+<tr><td>pForest (arXiv 1909.05680)</td><td>Random forests in P4</td><td>Line-rate per-packet inference for hundreds of thousands of flows; phase-aware flow models; validated on Tofino-class hardware</td><td>Task-agnostic framework; classification is the output, not a service treatment</td></tr>
+<tr><td>Mousika (INFOCOM’22)</td><td>Knowledge distillation for the data plane</td><td>Distills complex models into binary decision trees that fit switch constraints — the compilation recipe this project adopts</td><td>Same: enabling technique, different problem</td></tr>
+<tr><td>Planter (arXiv 2205.08824)</td><td>Automated in-network ML</td><td>Modular one-click mapping of many model families to P4 targets; adopted as the de-facto mapping scheme by later work</td><td>Same: tooling, not an agent-traffic system</td></tr>
+<tr><td>NetBeacon; Flowrest / Akem et al. 2025 (IJNM)</td><td>In-switch (encrypted) traffic classification</td><td>Tree models over packet+flow features classify encrypted traffic in real time inside programmable switches</td><td>Classes are applications/attacks, not agent identity; no transport-QoS action</td></tr>
+<tr><td>ACC-Turbo (SIGCOMM’22)</td><td>In-network inference → scheduling</td><td>Online clustering of traffic aggregates coupled to programmable scheduling to deprioritize pulse-wave DDoS — the closest precedent for classification-to-action coupling in the data plane</td><td>Trigger is attack aggregates, not agent identity; objective is attack mitigation, not traffic-class QoS engineering</td></tr>
+</table>
+
+<h3>5.3 · Stream C — Networking research around agent protocols (adjacent)</h3>
+<table>
+<tr><th>Work</th><th>Focus</th><th>Key result</th><th>Limitation w.r.t. this project</th></tr>
+<tr><td>NetMCP + SONAR (Li et al., 2025)</td><td>Network-aware MCP</td><td>Tool-invocation routing that weighs semantic similarity together with real-time QoS when agents call external tools</td><td>Application-layer tool selection: the network is context the agent reads, not an enforcer that treats agent traffic</td></tr>
+<tr><td>LLM-powered agentic AI for 5G/6G (arXiv 2607.16066, survey)</td><td>Agents in network management</td><td>Surveys MCP/A2A adoption at management/control planes (O-RAN rApps/xApps, NWDAF interfaces)</td><td>Agents managing networks — the inverse of this project, which makes networks aware of agents</td></tr>
+</table>
+
+<h3>5.4 · Gap synthesis</h3>
+<p>Stream A detects agents but cannot act, operates at the application layer, and its best results lean on signals a switch never sees — while its own ablations show the network layer alone is unsolved. Stream B acts inside the data plane at line rate but has never targeted agent traffic; its closest action-coupling precedent (ACC-Turbo) keys on attack aggregates, not traffic identity. Stream C serves agents from the network’s management plane without ever treating agent flows as a traffic class. <strong>Gap statement (for the paper):</strong> no prior system classifies agentic/MCP/A2A traffic in the forwarding path, and no prior system couples agent-traffic identity to transport-layer QoS treatment. This work is, to our knowledge, the first to do both in a single data-plane pipeline.</p>
+
+<h2>6 · Novelty — Four Distinguishing Axes</h2>
+<ol>
+<li><strong>Location — forwarding plane, not application edge.</strong> Acts inside the switch, per packet, at line rate, on any traffic crossing the device; no proxying, no TLS termination, works beyond HTTP.</li>
+<li><strong>Action — transport QoS, not access control.</strong> Queueing, scheduling, ECN/congestion signaling, admission control; an engineered lane, not a verdict.</li>
+<li><strong>Trigger — agent/MCP identity specifically</strong>, not generic application classes (classic QoS literature) and not GPU-cluster AI-workload prioritization (AI-fabric work).</li>
+<li><strong>Features — agent-protocol and behavioral fingerprints keyed directly to the QoS action in the same pipeline.</strong> The contribution is this coupling.</li>
+</ol>
+<p>Framed as paper contributions: (C1) the first characterization of agent traffic as a distinct in-network traffic class with line-rate-computable features; (C2) a data-plane classifier + QoS coupling architecture with a controller-assisted reclassification loop; (C3) a reproducible evaluation showing human-traffic tail-latency protection under agent bursts against four baselines; (C4) an adversarial analysis showing timing-based evasion is self-penalizing.</p>
+
+<h2>7 · Classification Parameters: Agent vs Human</h2>
+<p>Five feature families, ranked by expected discriminative weight. Families 1–3 carry the classifier; family 4 saturates against browser-driven agents; family 5 is deployment-dependent.</p>
+<ol>
+<li><strong>Inter-packet timing statistics (strongest signal).</strong> Human flows contain think time: heavy-tailed gaps of hundreds of milliseconds to seconds, high variance. Agent flows are machine-paced: near-deterministic inter-arrival times (IATs), sub-ms to tens-of-ms gaps, low coefficient of variation. Computed per-flow in P4 registers: EWMA IAT mean/variance, min/max IAT, coarse timing entropy. Key property: evasion is self-defeating — an agent inserting human-like think time becomes as slow as a human, forfeiting its own purpose.</li>
+<li><strong>Burst and fan-out structure.</strong> Agents fire parallel tool-calls: N simultaneous connections from one source with synchronized starts; humans open connections gradually. Features: new-flow arrival rate per source (count-min sketch), concurrent flows per source, burst length in packets, destination diversity per time window. This family directly predicts the congestion harm being solved.</li>
+<li><strong>Packet-size and flow-shape statistics (survive encryption).</strong> Sizes of the first N packets of a flow (highly discriminative in encrypted-traffic ML), packet-length distribution moments/histogram bins, upstream/downstream byte ratio (agents: large structured JSON-RPC requests up, SSE streams down; human browsing: heavily download-asymmetric), flow duration. MCP-over-SSE signature: a long-lived flow carrying near-periodic small event/keepalive packets.</li>
+<li><strong>TLS handshake metadata (JA4 family — useful, never the anchor).</strong> The ClientHello is plaintext even in TLS 1.3: cipher-suite and extension counts/order, ALPN, GREASE, post-quantum key-exchange presence, SNI. Python/Go/Node agent stacks differ visibly from browsers — but agents driving real Chromium present browser-identical fingerprints (network-layer-only attribution: ~45–60%), and Encrypted ClientHello will erode SNI visibility over time. Treated as one input to the tree, with these limitations stated in the paper.</li>
+<li><strong>Explicit/cooperative signals (deployment-dependent).</strong> Web Bot Auth signature headers (RFC 9421) and MCP/A2A JSON-RPC protocol signatures travel inside TLS payloads — invisible mid-path, visible behind a TLS-terminating load balancer or on plaintext east–west datacenter traffic. Framing: the classifier runs on families 1–4 everywhere and gains family 5 as bonus features in TLS-terminated deployments.</li>
+</ol>
+<p>Where each computation lives:</p>
+<table>
+<tr><th>Feature</th><th>Computed in</th><th>Mechanism</th></tr>
+<tr><td>IAT mean/variance, timing entropy</td><td>P4 fast path</td><td>Per-flow registers; EWMA on timestamp deltas</td></tr>
+<tr><td>First-N packet sizes, length histogram</td><td>P4 fast path</td><td>Register array indexed by packet count</td></tr>
+<tr><td>Up/down byte ratio, flow duration</td><td>P4 fast path</td><td>Directional byte counters</td></tr>
+<tr><td>New-flow rate, fan-out per source</td><td>P4 fast path</td><td>Count-min sketch + window counters</td></tr>
+<tr><td>SSE periodicity signature</td><td>P4 fast path</td><td>IAT regularity check on long-lived flows</td></tr>
+<tr><td>JA4 fields (counts, ALPN, SNI)</td><td>P4 parser (1st pkt)</td><td>ClientHello parsing; full JA4 hash punted</td></tr>
+<tr><td>Full JA4, Web Bot Auth verify, reclassification</td><td>SDN slow path</td><td>Controller inspects punts; updates tables</td></tr>
+</table>
+<p><strong>Three output classes, not two:</strong> human/interactive · interactive agent (latency-sensitive tool-calls) · bulk agent (crawling/batch). Time-critical agent traffic can receive priority treatment too — a stronger QoS story that also preempts the “anti-bot discrimination” objection.</p>
+
+<h2>8 · Implementation in Detail</h2>
+<h3>8.1 · Data plane (P4 on BMv2, in Mininet)</h3>
+<p>The P4 program defines the full packet path. <strong>Parser:</strong> Ethernet → IPv4 → TCP/UDP; on a flow’s first packet, parse TLS ClientHello fields (cipher/extension counts, ALPN, SNI length bucket). <strong>Feature stage:</strong> hash the 5-tuple to a flow index; update per-flow register arrays — last-seen timestamp, EWMA IAT mean and variance, packet count, directional byte counters, first-N packet-size slots; update per-source count-min sketch for new-flow rate and fan-out. <strong>Classification stage:</strong> the offline-trained decision tree is compiled into match-action tables using range matches over the register values (the Mousika/IIsy distillation recipe), emitting a 2-bit class label in packet metadata. <strong>Action stage:</strong> the label drives DSCP rewrite, egress-queue selection (three class queues with weighted round-robin), a per-class ECN marking threshold, and a per-class meter for admission control of new flows. <strong>Human-protection mode:</strong> when the egress queue depth crosses a congestion threshold, scheduler weights shift to a protective preset that caps the aggregate agent share.</p>
+<h3>8.2 · Control plane (SDN slow path)</h3>
+<p>A Ryu (or ONOS) controller performs what cannot or should not run per-packet: it installs and updates the class→queue/weight policy; receives first-packet punts to compute the full JA4 string and, where visible, verify Web Bot Auth signatures; and runs the <strong>entropy-shift reclassification loop</strong> — periodically reading flow statistics and reassigning the class of flows whose timing behavior has drifted (an agent mimicking human pacing, or a misclassified human flow). The per-packet decision always stays in the device; the controller only refines it.</p>
+<h3>8.3 · ML workflow</h3>
+<p>Python + scikit-learn: train a shallow decision tree (depth ≤ 8) on the labeled traffic corpus (§9.1); export split thresholds; compile mechanically into P4 table entries. Feature importances are reported in the paper — timing and burst features are expected to dominate, reinforcing the design argument that line-rate-visible behavior suffices for class-level (not framework-level) discrimination.</p>
+<h3>8.4 · Traffic harness</h3>
+<p>Ground truth comes from real systems, not synthetic labels: an instrumented target (small web app + a real MCP server) receives traffic from actual agent frameworks (e.g., Browser Use, Claude with MCP tools, AutoGen, a Playwright-driven agentic browser) run in containers, with pcaps captured at the target — mirroring the methodology of the fingerprinting literature. AgentReady’s WebMCP tool-call traffic serves as an additional realistic MCP workload source. Human traffic: replayed public anonymized traces (MAWI backbone captures; CAIDA passive traces) plus captured interactive browsing sessions for labeled human flows. Background load: iperf3 bulk flows.</p>
+
+<h2>9 · Evaluation Plan</h2>
+<h3>9.1 · Setup</h3>
+<p>Mininet topology with the BMv2 switch at a choke point; link capacities scaled down (10–50 Mbps) so relative congestion behavior is preserved despite BMv2’s software forwarding limits — standard, defensible practice in P4 evaluations, stated explicitly in the paper. Traffic mixes sweep agent share from 10% to 90% and burst intensity across a grid; each configuration runs with multiple seeds and reports confidence intervals.</p>
+<h3>9.2 · Baselines (four)</h3>
+<ul>
+<li>FIFO / best-effort (no differentiation);</li>
+<li>Standard DiffServ with port/application-based marking;</li>
+<li>Per-flow fair queuing;</li>
+<li>An application-layer rate limiter (edge/WAF-style) — demonstrating that the in-network approach reacts faster and covers non-HTTP paths.</li>
+</ul>
+<h3>9.3 · Metrics and targets</h3>
+<ul>
+<li>Human/interactive flow p50/p95/p99 latency under agent burst — <strong>target: ≥30% p99 reduction vs best baseline</strong>;</li>
+<li>Agent tool-call completion time (interactive-agent class must not be starved);</li>
+<li>Classification precision/recall per class at line rate;</li>
+<li>Data-plane overhead: added per-packet latency (<strong>target &lt;5%</strong>), table entries, register memory footprint;</li>
+<li>State scaling: accuracy and memory vs concurrent flow count (1k → 100k, with sketch-based approximations beyond exact-state capacity);</li>
+<li>Adversarial evasion: agents deliberately mimicking human pacing — report both the accuracy drop and the agent’s throughput self-penalty, converting the “evasion is self-defeating” argument from claim to measurement.</li>
+</ul>
+<p>The paper’s centerpiece figure: human p99 latency held flat during an agent storm with the system on, versus the spike under every baseline.</p>
+
+<h2>10 · Phase-Wise Execution Checklist (15 weeks)</h2>
+<h3>Phase 0 — Lock-in (this week)</h3>
+<ul class="chk">
+<li>Freeze the one-liner and the four novelty axes; test every later design decision against them</li>
+<li>Freeze the contribution list (C1–C4) that the paper will claim</li>
+</ul>
+<h3>Phase 1 — Survey + related work (weeks 1–2)</h3>
+<ul class="chk">
+<li>Build the related-work table: arXiv 2606.20910, 2606.30119, 2602.09606, 2510.07176, 2605.14786; pForest, Planter, Mousika, IIsy, NetBeacon, ACC-Turbo; NetMCP/SONAR; Web Bot Auth / RFC 9421; classic DiffServ/QoS literature</li>
+<li>Verify every remaining citation (incl. the operator/standards-bodies discussion line) against primary sources</li>
+<li>Write the introduction, motivation, and related-work sections of the paper now, while fresh</li>
+</ul>
+<h3>Phase 2 — Design (weeks 3–5)</h3>
+<ul class="chk">
+<li>Freeze the line-rate feature set (nothing requiring payload reassembly)</li>
+<li>Design the P4 pipeline: parser → feature registers → tree-as-tables → action stage</li>
+<li>Design the SDN slow path: policy distribution + entropy-shift reclassification</li>
+<li>Draw the architecture diagram; finalize the three-class QoS policy and human-protection preset</li>
+</ul>
+<h3>Phase 3 — Prototype (weeks 6–10)</h3>
+<ul class="chk">
+<li>Environment: Mininet + BMv2 + p4c toolchain; GitHub repo scaffolded from day one</li>
+<li>Traffic harness: real agent frameworks in containers against an instrumented MCP target (reuse AgentReady traffic); MAWI/CAIDA replay + captured browsing for human flows</li>
+<li>Train the decision tree offline; compile thresholds into P4 table entries</li>
+<li>Build incrementally: classification-only first (verify precision/recall), then wire the QoS action stage</li>
+<li>Get the centerpiece demo working: agent burst hits the link, human p99 stays flat</li>
+<li>Live per-class latency/throughput dashboard</li>
+</ul>
+<h3>Phase 4 — Evaluation (weeks 11–13)</h3>
+<ul class="chk">
+<li>Run all four baselines across the agent-share × burst-intensity grid</li>
+<li>Collect latency percentiles, completion times, precision/recall, overhead, state-scaling and evasion results</li>
+<li>Multiple seeds + confidence intervals on every reported number</li>
+<li>Hit the anchor targets: ≥30% p99 reduction, &lt;5% per-packet overhead</li>
+</ul>
+<h3>Phase 5 — Paper + demo (weeks 14–15)</h3>
+<ul class="chk">
+<li>Finish the IEEE paper: methodology, four-baseline results tables, limitations (BMv2 emulation, DSCP domain scope, ECH erosion of SNI), future work (silicon-rate validation)</li>
+<li>Select target venue and format the submission accordingly</li>
+<li>Presentation + live demo of the human-traffic-protection scenario</li>
+<li>Repo cleanup: README, reproduction instructions, topology scripts, dataset/corpus documentation</li>
+</ul>
+<p class="note">Cross-cutting habits: keep a dated lab notebook of design decisions (feeds the methodology section and viva answers); re-check for newly published related work mid-semester — this space moved fast through 2025–2026, and week 8 is a better time to find a competing paper than week 15.</p>
+
+<h2>11 · Tech Stack</h2>
+<table>
+<tr><th>Layer</th><th>Technology</th><th>Role</th></tr>
+<tr><td>Data plane</td><td>P4<sub>16</sub> on BMv2 (v1model)</td><td>Line-rate classification + QoS pipeline</td></tr>
+<tr><td>Emulation</td><td>Mininet</td><td>Topology, links, hosts, choke point</td></tr>
+<tr><td>Control plane</td><td>Ryu / ONOS (Python)</td><td>Policy, punts, reclassification loop</td></tr>
+<tr><td>ML</td><td>Python, scikit-learn</td><td>Decision-tree training → table compilation</td></tr>
+<tr><td>Agent traffic</td><td>Real agent frameworks in Docker + real MCP server; AgentReady WebMCP workloads</td><td>Ground-truth agent corpus</td></tr>
+<tr><td>Human traffic</td><td>MAWI / CAIDA trace replay (tcpreplay); captured browsing; iperf3</td><td>Ground-truth human + background load</td></tr>
+<tr><td>Measurement</td><td>Wireshark/tshark, Python (pandas/matplotlib)</td><td>Pcap analysis, latency percentiles, figures</td></tr>
+<tr><td>Writing</td><td>IEEE LaTeX template; GitHub</td><td>Paper + reproducible artifact</td></tr>
+</table>
+
+<h2>12 · Key References (verified)</h2>
+<ul>
+<li>Thales 2026 Bad Bot Report: Bad Bots in the Agentic Age (13th ed., Apr 2026) — traffic-share and attack-growth statistics.</li>
+<li>arXiv 2606.20910 — “Whose Agent Are You?”: multi-layer fingerprinting and attribution of autonomous web agents (97% with browser-level signals).</li>
+<li>arXiv 2606.30119 — “On the Internet, Nobody Knows You’re an LLM Bot”: network-layer-only agent attribution is weak (~45–60%); motivates the open problem.</li>
+<li>arXiv 2602.09606 — “When Handshakes Tell the Truth”: binary bot-vs-human detection from JA4/TLS fingerprints (~98.6%, AUC 0.998).</li>
+<li>arXiv 2510.07176 — AgentPrint: LLM-agent identification from encrypted traffic timing/volume (F1 0.866); privacy-risk framing.</li>
+<li>arXiv 2605.14786 — “Known By Their Actions”: fingerprinting LLM browser agents via UI traces.</li>
+<li>arXiv 1909.05680 — pForest: in-network inference with random forests at line rate (Tofino-validated).</li>
+<li>arXiv 2205.08824 — Planter: automated mapping of ML models to programmable data planes (de-facto mapping scheme).</li>
+<li>Mousika (INFOCOM 2022) — knowledge-distilled binary decision trees for data-plane deployment (compilation recipe adopted here).</li>
+<li>IIsy / “Do Switches Dream of Machine Learning?” (HotNets 2019 line) — foundational ML→match-action mapping.</li>
+<li>NetBeacon; Akem et al., Int. J. Network Management 2025 — in-switch real-time (encrypted) traffic classification with tree models.</li>
+<li>ACC-Turbo (SIGCOMM 2022) — in-network aggregate clustering coupled to programmable scheduling for pulse-wave DDoS mitigation.</li>
+<li>NetMCP + SONAR (Li et al., 2025) — network-aware MCP tool invocation weighing semantics and real-time QoS.</li>
+<li>arXiv 2607.16066 — survey: LLM-powered agentic AI for 5G/6G architectures, protocols, standardization (MCP/A2A in management planes).</li>
+<li>RFC 9421 / Web Bot Auth (Cloudflare, IETF) — cooperative cryptographic agent identification signals.</li>
+</ul>
+
+<p class="foot note">Prepared from the consolidated idea note and execution plan · Agent-Aware Networking · BCSE308L/P · 2026</p>
+
+</body>
+</html>

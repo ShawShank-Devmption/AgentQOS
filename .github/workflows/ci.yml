@@ -1,0 +1,45 @@
+# CI gate (tasks P0.2/P0.6, design.md §11): lint + tests + P4 compile.
+# The equivalence gate (ml/verify_equivalence.py) is added to the "test" job in Phase 3 (P3.7).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pytest scikit-learn pandas pyyaml scapy
+      # exit code 5 = no tests collected; tolerated only while the scaffold is empty
+      - run: pytest || [ $? -eq 5 ]
+
+  p4-compile:
+    runs-on: ubuntu-22.04
+    container: p4lang/p4c:latest   # TODO(P0.4): pin to the digest matching the VM toolchain
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile all P4 programs
+        run: |
+          if ls p4src/*.p4 >/dev/null 2>&1; then
+            for f in p4src/*.p4; do p4c-bm2-ss --std p4-16 -o /dev/null "$f"; done
+            echo "p4 compile OK"
+          else
+            echo "no p4src/*.p4 yet — skipping"
+          fi

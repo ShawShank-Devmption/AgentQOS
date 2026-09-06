@@ -1,0 +1,37 @@
+[project]
+name = "agent-aware-net"
+version = "0.0.1"
+description = "Agent-Aware Networking: in-network AI-agent traffic classification + QoS (P4/BMv2)"
+requires-python = ">=3.11"
+
+# Task P0.6: mechanical style enforcement so mixed-vendor LLM output (Codex/Claude)
+# stays uniform. Mirrors the style rules in AGENTS.md / CLAUDE.md.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["p4src", "docs", ".venv", ".venv-ryu"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # import sorting
+  "N",        # naming conventions (snake_case / PascalCase / UPPER_SNAKE)
+  "UP",       # pyupgrade (modern 3.11 idioms)
+  "B",        # bugbear (incl. B902 bare-except family)
+  "SIM",      # simplify
+  "G",        # logging: lazy %-formatting, no f-strings in log calls
+  "LOG",      # logging misuse
+  "T201",     # ban print() — logging only
+  "PTH",      # pathlib over os.path
+]
+# controller/ runs on Python 3.9 (Ryu, see docs/ENVIRONMENT.md §4): allow older syntax there
+[tool.ruff.lint.per-file-ignores]
+"controller/**" = ["UP"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
