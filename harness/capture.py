@@ -1,0 +1,183 @@
+"""Ground-truth flow labeling from orchestration windows and captured packets."""
+
+import csv
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from ipaddress import IPv4Address
+from pathlib import Path
+
+from scapy.all import IP, TCP, UDP, PcapReader
+from scapy.error import Scapy_Exception
+
+from common.contracts import LABEL_FIELDS, TRAINING_LABELS, TrafficClass
+
+
+@dataclass(frozen=True)
+class CaptureWindow:
+    """Ground-truth interval emitted by a traffic runner."""
+
+    source_ip: IPv4Address
+    start_time_s: Decimal
+    end_time_s: Decimal
+    label: TrafficClass
+    source_framework: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_ip, IPv4Address):
+            raise TypeError("source_ip must be an IPv4Address")
+        if not isinstance(self.start_time_s, Decimal) or not isinstance(self.end_time_s, Decimal):
+            raise TypeError("capture window timestamps must be Decimal values")
+        if self.end_time_s < self.start_time_s:
+            raise ValueError("capture window end must not precede its start")
+        if not isinstance(self.label, TrafficClass):
+            raise TypeError("label must be a TrafficClass")
+        if self.label not in TRAINING_LABELS:
+            raise ValueError("training capture windows cannot use the UNKNOWN label")
+        if not isinstance(self.source_framework, str) or not self.source_framework.strip():
+            raise ValueError("source_framework must not be empty")
+
+
+@dataclass(frozen=True, order=True)
+class FlowLabel:
+    """One row in the frozen labels.csv schema."""
+
+    flow_id: str
+    src_ip: str
+    dst_ip: str
+    proto: int
+    src_port: int
+    dst_port: int
+    label: int
+    source_framework: str
+    pcap_file: str
+
+    def as_dict(self) -> dict[str, str | int]:
+        """Return a dictionary ordered by the frozen label fields.
+
+        Returns:
+            Values ready for `csv.DictWriter`.
+        """
+        values: dict[str, str | int] = {
+            "flow_id": self.flow_id,
+            "src_ip": self.src_ip,
+            "dst_ip": self.dst_ip,
+            "proto": self.proto,
+            "src_port": self.src_port,
+            "dst_port": self.dst_port,
+            "label": self.label,
+            "source_framework": self.source_framework,
+            "pcap_file": self.pcap_file,
+        }
+        return {field: values[field] for field in LABEL_FIELDS}
+
+
+class PcapInputError(ValueError):
+    """Raised when a pcap cannot be read or labeled unambiguously."""
+
+
+def label_pcap_flows(pcap_path: Path, windows: tuple[CaptureWindow, ...]) -> tuple[FlowLabel, ...]:
+    """Join pcap flows to runner-owned intervals without inspecting traffic features.
+
+    Args:
+        pcap_path: Captured packet file to read.
+        windows: Orchestration intervals carrying the ground-truth class and framework.
+
+    Returns:
+        Deterministically ordered, unique labels for forward-direction TCP/UDP flows.
+
+    Raises:
+        FileNotFoundError: If `pcap_path` does not exist.
+        PcapInputError: If windows overlap ambiguously or the pcap cannot be parsed.
+    """
+    if not pcap_path.is_file():
+        raise FileNotFoundError(pcap_path)
+    _validate_non_overlapping_windows(windows)
+
+    labels: dict[tuple[str, str, int, int, int], FlowLabel] = {}
+    try:
+        with PcapReader(str(pcap_path)) as packets:
+            for packet in packets:
+                packet_label = _label_packet(packet, pcap_path.name, windows)
+                if packet_label is None:
+                    continue
+                key = (
+                    packet_label.src_ip,
+                    packet_label.dst_ip,
+                    packet_label.proto,
+                    packet_label.src_port,
+                    packet_label.dst_port,
+                )
+                labels.setdefault(key, packet_label)
+    except (InvalidOperation, OSError, Scapy_Exception) as exc:
+        raise PcapInputError(f"could not parse pcap: {pcap_path}") from exc
+
+    return tuple(labels[key] for key in sorted(labels))
+
+
+def write_labels(labels: tuple[FlowLabel, ...], output_path: Path) -> None:
+    """Write flow labels using the frozen CSV column order.
+
+    Args:
+        labels: Ground-truth rows returned by `label_pcap_flows`.
+        output_path: Destination labels.csv path.
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as output_file:
+        writer = csv.DictWriter(output_file, fieldnames=LABEL_FIELDS)
+        writer.writeheader()
+        writer.writerows(label.as_dict() for label in labels)
+
+
+def _validate_non_overlapping_windows(windows: tuple[CaptureWindow, ...]) -> None:
+    ordered = sorted(windows, key=lambda window: (window.source_ip, window.start_time_s))
+    for previous, current in zip(ordered, ordered[1:], strict=False):
+        if previous.source_ip != current.source_ip:
+            continue
+        if current.start_time_s <= previous.end_time_s:
+            raise PcapInputError(
+                f"overlapping orchestration windows for source {current.source_ip}"
+            )
+
+
+def _label_packet(
+    packet: object,
+    pcap_name: str,
+    windows: tuple[CaptureWindow, ...],
+) -> FlowLabel | None:
+    if not hasattr(packet, "haslayer") or not packet.haslayer(IP):
+        return None
+    if packet.haslayer(TCP):
+        transport = packet[TCP]
+        protocol = 6
+    elif packet.haslayer(UDP):
+        transport = packet[UDP]
+        protocol = 17
+    else:
+        return None
+
+    ip_header = packet[IP]
+    timestamp = Decimal(str(packet.time))
+    window = next(
+        (
+            candidate
+            for candidate in windows
+            if str(candidate.source_ip) == ip_header.src
+            and candidate.start_time_s <= timestamp <= candidate.end_time_s
+        ),
+        None,
+    )
+    if window is None:
+        return None
+
+    flow_id = f"{ip_header.src}:{transport.sport}-{ip_header.dst}:{transport.dport}-{protocol}"
+    return FlowLabel(
+        flow_id=flow_id,
+        src_ip=ip_header.src,
+        dst_ip=ip_header.dst,
+        proto=protocol,
+        src_port=int(transport.sport),
+        dst_port=int(transport.dport),
+        label=window.label.value,
+        source_framework=window.source_framework,
+        pcap_file=pcap_name,
+    )

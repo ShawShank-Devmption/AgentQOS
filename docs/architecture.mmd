@@ -1,0 +1,26 @@
+flowchart LR
+    subgraph Sources[Mininet hosts]
+        Agents[Agent frameworks]
+        Human[Human traffic]
+        Bulk[Background load]
+    end
+
+    subgraph Switch[BMv2 simple_switch - agent_aware.p4]
+        Parser[Parser<br/>Ethernet / IPv4 / TCP / UDP / TLS-CH]
+        Features[Flow state<br/>EWMA / sizes / fan-out sketch]
+        Classifier[Decision tree<br/>range-match tables]
+        Action[QoS action<br/>DSCP / queue / ECN / meter]
+        Parser --> Features --> Classifier --> Action
+    end
+
+    Target[MCP server and web target]
+    Controller[Ryu controller<br/>policy / punts / reclassification]
+    ML[Offline ML<br/>pcap -> features -> tree -> table entries]
+
+    Agents --> Parser
+    Human --> Parser
+    Bulk --> Parser
+    Action --> Target
+    Switch -. first-packet punts and register reads .-> Controller
+    Controller -. idempotent table and policy writes .-> Switch
+    ML -. compiled tree JSON .-> Controller
