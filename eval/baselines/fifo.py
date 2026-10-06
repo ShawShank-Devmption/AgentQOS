@@ -13,7 +13,7 @@ def plan(link_mbps: int) -> BaselinePlan:
                 "qdisc",
                 "replace",
                 "dev",
-                "s1-eth4",
+                "s1-eth7",
                 "root",
                 "tbf",
                 "rate",
@@ -24,5 +24,5 @@ def plan(link_mbps: int) -> BaselinePlan:
                 "400ms",
             ),
         ),
-        teardown_commands=(("tc", "qdisc", "del", "dev", "s1-eth4", "root"),),
+        teardown_commands=(("tc", "qdisc", "del", "dev", "s1-eth7", "root"),),
     )

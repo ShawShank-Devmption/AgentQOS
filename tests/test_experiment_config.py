@@ -44,6 +44,8 @@ def test_each_baseline_sanity_config_is_valid(system: str) -> None:
         ("agent_share_pct", [5], "agent_share_pct values must be between"),
         ("burst_intensity", ["extreme"], "burst_intensity values must be in"),
         ("duration_s", 0, "duration_s must be positive"),
+        ("agent_share_pct", [10, 10], "agent_share_pct values must be unique"),
+        ("burst_intensity", ["low", "low"], "burst_intensity values must be unique"),
         ("seeds", [1, 1], "seeds must be unique"),
         ("outputs", "/tmp/results", "relative path below results"),
         ("outputs", "results/../outside", "relative path below results"),

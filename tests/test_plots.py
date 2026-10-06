@@ -11,7 +11,9 @@ from eval.plots import PlotInputError, generate_figures
 def _write_raw_inputs(root: Path) -> None:
     root.mkdir()
     (root / "centerpiece.csv").write_text(
-        "time_s,system,human_p99_ms\n0,ours,10\n10,ours,12\n0,fifo,11\n10,fifo,70\n",
+        "time_s,system,human_p99_ms\n"
+        "0,ours,10\n10,ours,12\n0,fifo,11\n10,fifo,70\n"
+        "0,diffserv,15\n0,fairq,14\n0,app_limiter,13\n",
         encoding="utf-8",
     )
     (root / "classification.csv").write_text(
@@ -35,7 +37,17 @@ def _write_raw_inputs(root: Path) -> None:
         encoding="utf-8",
     )
     (root / "feature_importance.csv").write_text(
-        "feature,importance\nfanout_new_flows,0.3\niat_ewma_us,0.7\n",
+        "feature,importance\n"
+        "iat_ewma_us,0.20\n"
+        "iat_var_ewma,0.15\n"
+        "pkt_count,0.15\n"
+        "mean_pkt_size_up,0.10\n"
+        "updown_ratio_x100,0.10\n"
+        "first8_size_bucket,0.08\n"
+        "fanout_new_flows,0.07\n"
+        "tls_ext_count,0.06\n"
+        "tls_alpn_class,0.05\n"
+        "flow_age_ms,0.04\n",
         encoding="utf-8",
     )
 
@@ -81,6 +93,44 @@ def test_missing_required_column_fails_before_writing_figures(tmp_path: Path) ->
     output_dir = tmp_path / "figures"
 
     with pytest.raises(PlotInputError, match="human_p99_ms"):
+        generate_figures(raw_dir, output_dir)
+
+    assert not output_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("filename", "old", "new", "message"),
+    [
+        ("centerpiece.csv", "0,ours,10", "0,ours,nan", "finite"),
+        (
+            "classification.csv",
+            "HUMAN_INTERACTIVE,0.9,0.8\n",
+            "",
+            "class values",
+        ),
+        (
+            "classification.csv",
+            "AGENT_BULK,0.7,0.6",
+            "AGENT_INTERACTIVE,0.7,0.6",
+            "duplicate class",
+        ),
+        ("classification.csv", "0.9,0.8", "1.1,0.8", "between 0 and 1"),
+    ],
+)
+def test_invalid_aggregate_values_fail_before_writing_figures(
+    tmp_path: Path,
+    filename: str,
+    old: str,
+    new: str,
+    message: str,
+) -> None:
+    raw_dir = tmp_path / "raw"
+    _write_raw_inputs(raw_dir)
+    path = raw_dir / filename
+    path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+    output_dir = tmp_path / "figures"
+
+    with pytest.raises(PlotInputError, match=message):
         generate_figures(raw_dir, output_dir)
 
     assert not output_dir.exists()

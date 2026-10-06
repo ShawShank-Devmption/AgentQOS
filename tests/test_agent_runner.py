@@ -49,6 +49,7 @@ def test_task_order_is_deterministic_for_explicit_seed(tmp_path: Path) -> None:
     [
         ("parallelism", 0, "parallelism must be positive"),
         ("think_time_s", -0.1, "think_time_s must be non-negative"),
+        ("repetitions", 0, "repetitions must be positive"),
         ("label", TrafficClass.UNKNOWN, "UNKNOWN"),
     ],
 )
@@ -102,3 +103,17 @@ def test_runner_applies_configured_think_time_to_each_task(tmp_path: Path) -> No
     )
 
     assert sleeps == [0.25, 0.25, 0.25]
+
+
+def test_runner_repeats_script_to_sustain_an_experiment_window(tmp_path: Path) -> None:
+    task_script = tmp_path / "tasks.json"
+    _write_tasks(task_script, count=2)
+
+    record = run_agent(
+        _config(task_script, repetitions=3),
+        source_framework="fixture",
+        tool_call=lambda target_url, tool, arguments: arguments,
+    )
+
+    assert record.completed == 6
+    assert record.failed == 0

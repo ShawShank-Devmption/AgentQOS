@@ -34,6 +34,10 @@ class CaptureWindow:
             raise TypeError("source_ip must be an IPv4Address")
         if not isinstance(self.start_time_s, Decimal) or not isinstance(self.end_time_s, Decimal):
             raise TypeError("capture window timestamps must be Decimal values")
+        if not self.start_time_s.is_finite() or not self.end_time_s.is_finite():
+            raise ValueError("capture window timestamps must be finite")
+        if self.start_time_s < 0 or self.end_time_s < 0:
+            raise ValueError("capture window timestamps must be non-negative")
         if self.end_time_s < self.start_time_s:
             raise ValueError("capture window end must not precede its start")
         if not isinstance(self.label, TrafficClass):
@@ -192,12 +196,25 @@ def read_capture_windows(log_path: Path) -> tuple[CaptureWindow, ...]:
             entry = json.loads(raw_line)
             if not isinstance(entry, Mapping):
                 raise ValueError("entry must be an object")
+            source_ip = entry["source_ip"]
+            start_time_s = entry["start_time_s"]
+            end_time_s = entry["end_time_s"]
+            label = entry["label"]
+            source_framework = entry["source_framework"]
+            if not isinstance(source_ip, str):
+                raise TypeError("source_ip must be a string")
+            if not isinstance(start_time_s, str) or not isinstance(end_time_s, str):
+                raise TypeError("timestamps must be decimal strings")
+            if type(label) is not int:
+                raise TypeError("label must be an integer")
+            if not isinstance(source_framework, str):
+                raise TypeError("source_framework must be a string")
             window = CaptureWindow(
-                source_ip=IPv4Address(str(entry["source_ip"])),
-                start_time_s=Decimal(str(entry["start_time_s"])),
-                end_time_s=Decimal(str(entry["end_time_s"])),
-                label=TrafficClass(int(entry["label"])),
-                source_framework=str(entry["source_framework"]),
+                source_ip=IPv4Address(source_ip),
+                start_time_s=Decimal(start_time_s),
+                end_time_s=Decimal(end_time_s),
+                label=TrafficClass(label),
+                source_framework=source_framework,
             )
         except (
             InvalidOperation,

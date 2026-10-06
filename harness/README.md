@@ -12,6 +12,11 @@ parallelism, think time, explicit seed, and orchestration-log path. Task scripts
 `{"tool": ..., "arguments": {...}}` objects. The four stable source identifiers are
 `browser-use`, `playwright-agent`, `autogen`, and `claude-mcp`.
 
+The optional `--repetitions` argument repeats the seeded script to sustain an experiment window.
+The storm planner derives repetitions from the burst flow rate, agent-share percentage, duration,
+and script length. Each simultaneous framework uses its own source IP so orchestration windows
+remain unambiguous during label joins.
+
 The checked-in adapters exercise the common MCP wire contract. A real corpus run must execute each
 adapter from its named framework's pinned container and archive the image digest, dependency lock,
 task script, seed, pcap, orchestration log, and target request log together. Framework credentials

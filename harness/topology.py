@@ -38,9 +38,12 @@ class HostSpec:
 
 HOSTS = (
     HostSpec("h_agent1", "agent", "10.0.0.1/24", "00:00:00:00:00:01", 1),
-    HostSpec("h_human", "human", "10.0.0.2/24", "00:00:00:00:00:02", 2),
-    HostSpec("h_bulk", "background", "10.0.0.3/24", "00:00:00:00:00:03", 3),
-    HostSpec("h_target", "target", "10.0.0.100/24", "00:00:00:00:00:64", 4),
+    HostSpec("h_agent2", "agent", "10.0.0.4/24", "00:00:00:00:00:04", 2),
+    HostSpec("h_agent3", "agent", "10.0.0.5/24", "00:00:00:00:00:05", 3),
+    HostSpec("h_agent4", "agent", "10.0.0.6/24", "00:00:00:00:00:06", 4),
+    HostSpec("h_human", "human", "10.0.0.2/24", "00:00:00:00:00:02", 5),
+    HostSpec("h_bulk", "background", "10.0.0.3/24", "00:00:00:00:00:03", 6),
+    HostSpec("h_target", "target", "10.0.0.100/24", "00:00:00:00:00:64", 7),
 )
 
 
@@ -152,7 +155,7 @@ def forwarding_commands() -> tuple[str, ...]:
     """
     commands = [
         f"mc_mgrp_create {FLOOD_GROUP}",
-        "mc_node_create 0 1 2 3 4",
+        f"mc_node_create 0 {' '.join(str(host.switch_port) for host in HOSTS)}",
         f"mc_node_associate {FLOOD_GROUP} 0",
     ]
     commands.extend(
@@ -175,8 +178,10 @@ def run_smoke(config: SwitchLaunchConfig) -> SmokeResult:
         RuntimeError: If the Linux runtime or a connectivity check fails.
     """
     _validate_linux_runtime()
-    network = _create_network(config)
+    network: Any | None = None
     try:
+        network = _create_network(config)
+        network.build()
         network.start()
         SwitchApi(config.cli_path, config.thrift_port).run_commands(forwarding_commands())
         packet_loss = float(network.pingAll(timeout="2"))
@@ -187,14 +192,16 @@ def run_smoke(config: SwitchLaunchConfig) -> SmokeResult:
         human = network.get(HUMAN_NAME)
         target.cmd("iperf3 -s -1 -D")
         time.sleep(0.2)
-        raw_result = human.cmd(
-            f"iperf3 -c {HOSTS[3].ip_address.split('/')[0]} -t {config.iperf_duration_s} -J"
-        )
+        target_ip = next(host.ip_address for host in HOSTS if host.name == TARGET_NAME).split("/")[
+            0
+        ]
+        raw_result = human.cmd(f"iperf3 -c {target_ip} -t {config.iperf_duration_s} -J")
         bits_per_second = _parse_iperf_throughput(raw_result)
         LOGGER.info("M1 smoke passed: %.0f bits/s", bits_per_second)
         return SmokeResult(packet_loss_pct=packet_loss, bits_per_second=bits_per_second)
     finally:
-        network.stop()
+        if network is not None:
+            network.stop()
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -311,6 +318,7 @@ def _create_network(config: SwitchLaunchConfig) -> Any:
         link=TCLink,
         autoSetMacs=False,
         autoStaticArp=False,
+        build=False,
     )
 
 

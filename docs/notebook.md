@@ -70,3 +70,16 @@ DESIGN GAP: the 30% p99-reduction and 5% overhead targets are specified in requi
 are absent from `common/contracts.py`. `eval.metrics.evaluate_anchors` therefore requires both
 thresholds as explicit inputs instead of redeclaring shared constants or modifying the frozen
 contract without approvals.
+
+### 2026-10-06 final review hardening
+
+An independent code review rejected the initial evaluation path because plan materialization could
+be mistaken for successful execution. The runner now records a failed manifest and stops before
+any baseline side effect until a persistent Linux executor exists. Additional adversarial tests
+cover malformed/non-finite capture logs, duplicate experiment axes, whole-grid append-only
+preflight, cleanup after Mininet build failure, and strict aggregate CSV coverage/ranges.
+
+The storm plan now assigns the four concurrent framework adapters distinct topology hosts and
+derives task repetitions from burst rate, agent share, duration, and script length. This fixes the
+previous overlapping label windows and metadata-only workload dimensions, but it does not satisfy
+P3.15/P4.1/P4.2 without the missing Person 1/2 data plane and a successful Linux run.

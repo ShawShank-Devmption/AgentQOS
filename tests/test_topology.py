@@ -19,11 +19,14 @@ def test_choke_v1_has_expected_roles_and_ports() -> None:
     assert manifest["switch"] == "s1"
     assert [host["role"] for host in manifest["hosts"]] == [
         "agent",
+        "agent",
+        "agent",
+        "agent",
         "human",
         "background",
         "target",
     ]
-    assert [host.switch_port for host in HOSTS] == [1, 2, 3, 4]
+    assert [host.switch_port for host in HOSTS] == [1, 2, 3, 4, 5, 6, 7]
 
 
 def test_only_target_link_is_the_bottleneck() -> None:
@@ -33,7 +36,7 @@ def test_only_target_link_is_the_bottleneck() -> None:
         {
             "host": "h_target",
             "switch": "s1",
-            "switch_port": 4,
+            "switch_port": 7,
             "bw_mbps": 35,
             "delay_ms": 1,
         }
@@ -49,12 +52,15 @@ def test_link_capacity_must_stay_in_designed_range(link_mbps: int) -> None:
 def test_forwarding_commands_program_flood_group_and_all_host_macs() -> None:
     assert forwarding_commands() == (
         "mc_mgrp_create 1",
-        "mc_node_create 0 1 2 3 4",
+        "mc_node_create 0 1 2 3 4 5 6 7",
         "mc_node_associate 1 0",
         "table_add tbl_l2_forward set_egress_port 00:00:00:00:00:01 => 1",
-        "table_add tbl_l2_forward set_egress_port 00:00:00:00:00:02 => 2",
-        "table_add tbl_l2_forward set_egress_port 00:00:00:00:00:03 => 3",
-        "table_add tbl_l2_forward set_egress_port 00:00:00:00:00:64 => 4",
+        "table_add tbl_l2_forward set_egress_port 00:00:00:00:00:04 => 2",
+        "table_add tbl_l2_forward set_egress_port 00:00:00:00:00:05 => 3",
+        "table_add tbl_l2_forward set_egress_port 00:00:00:00:00:06 => 4",
+        "table_add tbl_l2_forward set_egress_port 00:00:00:00:00:02 => 5",
+        "table_add tbl_l2_forward set_egress_port 00:00:00:00:00:03 => 6",
+        "table_add tbl_l2_forward set_egress_port 00:00:00:00:00:64 => 7",
     )
 
 
@@ -66,6 +72,9 @@ def test_switch_launch_config_requires_compiled_p4_json(tmp_path: Path) -> None:
 class _FailingNetwork:
     def __init__(self) -> None:
         self.stopped = False
+
+    def build(self) -> None:
+        pass
 
     def start(self) -> None:
         raise RuntimeError("switch failed")
@@ -85,6 +94,27 @@ def test_run_smoke_stops_partially_started_network(
     monkeypatch.setattr("harness.topology._create_network", lambda config: network)
 
     with pytest.raises(RuntimeError, match="switch failed"):
+        run_smoke(SwitchLaunchConfig(p4_json=p4_json))
+
+    assert network.stopped
+
+
+class _BuildFailingNetwork(_FailingNetwork):
+    def build(self) -> None:
+        raise RuntimeError("network build failed")
+
+
+def test_run_smoke_stops_network_when_explicit_build_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p4_json = tmp_path / "l2fwd.json"
+    p4_json.write_text("{}", encoding="utf-8")
+    network = _BuildFailingNetwork()
+    monkeypatch.setattr("harness.topology._validate_linux_runtime", lambda: None)
+    monkeypatch.setattr("harness.topology._create_network", lambda config: network)
+
+    with pytest.raises(RuntimeError, match="network build failed"):
         run_smoke(SwitchLaunchConfig(p4_json=p4_json))
 
     assert network.stopped

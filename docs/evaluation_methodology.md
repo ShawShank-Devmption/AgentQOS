@@ -55,4 +55,6 @@ mapping to run manifests, config hashes, and seeds. Figure generation never edit
 The host unit/lint evidence verifies schemas, arithmetic, locking, manifests, metric math,
 dashboard serving, and deterministic figure generation. It does not verify P4 compilation,
 Mininet forwarding, real-framework captures, the full grid, headline anchors, or rehearsals. Those
-claims require the documented Linux environment and archived raw evidence.
+claims require the documented Linux environment and archived raw evidence. Live execution is
+currently fail-closed before baseline setup because the required Person 1/2 agent-aware P4 and
+controller pipeline is absent; dry-run manifests are planning artifacts only.

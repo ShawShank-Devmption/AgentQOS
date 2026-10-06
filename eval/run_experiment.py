@@ -33,6 +33,7 @@ from common.contracts import (
 from eval.baselines.base import BaselinePlan, baseline_plan
 
 LOGGER = logging.getLogger(__name__)
+HOST_LOCK_PATH = Path("/tmp/agentqos-experiment.lock")
 
 
 class ConfigError(ValueError):
@@ -162,8 +163,12 @@ def load_config(config_path: Path) -> ExperimentConfig:
             f"agent_share_pct values must be between {MIN_AGENT_SHARE_PCT} "
             f"and {MAX_AGENT_SHARE_PCT}"
         )
+    if len(set(shares)) != len(shares):
+        raise ConfigError("agent_share_pct values must be unique")
     if any(burst not in BURST_INTENSITIES for burst in bursts):
         raise ConfigError(f"burst_intensity values must be in {BURST_INTENSITIES}")
+    if len(set(bursts)) != len(bursts):
+        raise ConfigError("burst_intensity values must be unique")
     if any(seed < 0 for seed in seeds):
         raise ConfigError("seeds must be non-negative")
     if len(set(seeds)) != len(seeds):
@@ -282,7 +287,13 @@ def execute_run(
         return
 
     runner = command_runner or _run_command
+    setup_started = False
     try:
+        if command_runner is None:
+            from harness.demo import require_live_executor
+
+            require_live_executor()
+        setup_started = True
         for command in plan.setup_commands:
             runner(command)
         runner(workload)
@@ -294,7 +305,8 @@ def execute_run(
         manifest["error"] = str(exc)
         manifest["finished_at"] = datetime.now(UTC).isoformat()
         _write_manifest(manifest_path, manifest)
-        _best_effort_teardown(plan, runner)
+        if setup_started:
+            _best_effort_teardown(plan, runner)
         raise
     manifest["status"] = "complete"
     manifest["finished_at"] = datetime.now(UTC).isoformat()
@@ -307,6 +319,7 @@ def execute_config(
     lock_path: Path,
     *,
     dry_run: bool = False,
+    command_runner: CommandRunner | None = None,
 ) -> tuple[RunSpec, ...]:
     """Execute all cells while holding the exclusive host lock.
 
@@ -315,14 +328,21 @@ def execute_config(
         project_root: Repository root for output resolution.
         lock_path: Host-global lock file path.
         dry_run: Write planned manifests without running commands.
+        command_runner: Optional external command boundary for tests.
 
     Returns:
         The complete ordered run matrix.
     """
     runs = expand_runs(config, project_root)
     with ExperimentLock(lock_path):
+        output_dirs = tuple(run.output_dir for run in runs)
+        if len(set(output_dirs)) != len(output_dirs):
+            raise ConfigError("experiment matrix resolves to duplicate output directories")
+        existing = next((path for path in output_dirs if path.exists()), None)
+        if existing is not None:
+            raise FileExistsError(existing)
         for run in runs:
-            execute_run(run, dry_run=dry_run)
+            execute_run(run, dry_run=dry_run, command_runner=command_runner)
     return runs
 
 
@@ -340,11 +360,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--execute", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
-    parser.add_argument(
-        "--lock-path",
-        type=Path,
-        default=Path("/tmp/agentqos-experiment.lock"),
-    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     try:
@@ -355,7 +370,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             runs = execute_config(
                 config,
                 args.project_root,
-                args.lock_path,
+                HOST_LOCK_PATH,
                 dry_run=args.dry_run,
             )
             LOGGER.info("processed %d experiment cells", len(runs))
@@ -397,6 +412,7 @@ def _workload_command(run: RunSpec) -> tuple[str, ...]:
         sys.executable,
         "-m",
         "harness.demo",
+        "--execute",
         "--system",
         run.system,
         "--link-mbps",

@@ -11,6 +11,7 @@ from eval.run_experiment import (
     ExperimentLock,
     ExperimentLockedError,
     config_hash,
+    execute_config,
     execute_run,
     expand_runs,
 )
@@ -72,6 +73,23 @@ def test_run_directories_are_append_only(tmp_path: Path) -> None:
         execute_run(run, dry_run=True)
 
 
+def test_config_preflight_rejects_any_existing_cell_before_execution(tmp_path: Path) -> None:
+    runs = expand_runs(_config(), tmp_path)
+    runs[1].output_dir.mkdir(parents=True)
+    commands: list[tuple[str, ...]] = []
+
+    with pytest.raises(FileExistsError, match=str(runs[1].output_dir)):
+        execute_config(
+            _config(),
+            tmp_path,
+            tmp_path / "experiment.lock",
+            command_runner=commands.append,
+        )
+
+    assert commands == []
+    assert not runs[0].output_dir.exists()
+
+
 def test_command_failure_is_recorded_before_it_is_raised(tmp_path: Path) -> None:
     run = expand_runs(_config(), tmp_path)[0]
 
@@ -84,6 +102,22 @@ def test_command_failure_is_recorded_before_it_is_raised(tmp_path: Path) -> None
     manifest = json.loads((run.output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "failed"
     assert "failed:" in manifest["error"]
+
+
+def test_default_execution_fails_before_baseline_side_effects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run = expand_runs(_config(), tmp_path)[0]
+    commands: list[tuple[str, ...]] = []
+    monkeypatch.setattr("eval.run_experiment._run_command", commands.append)
+
+    with pytest.raises(RuntimeError, match="persistent experiment execution is unavailable"):
+        execute_run(run)
+
+    manifest = json.loads((run.output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "failed"
+    assert commands == []
 
 
 @pytest.mark.parametrize("system", ["fifo", "diffserv", "fairq", "app_limiter"])

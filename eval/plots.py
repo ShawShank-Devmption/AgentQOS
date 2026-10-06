@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import logging
+import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -13,6 +14,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+from common.contracts import EXPERIMENT_SYSTEMS, FEATURE_ORDER, TRAINING_LABELS
 
 LOGGER = logging.getLogger(__name__)
 FIGURE_NAMES = (
@@ -63,6 +66,62 @@ def generate_figures(raw_dir: Path, output_dir: Path) -> tuple[Path, ...]:
     )
     _validate_numeric(evasion, ("think_time_ms", "accuracy", "throughput_tps"), "evasion.csv")
     _validate_numeric(importances, ("importance",), "feature_importance.csv")
+    _validate_unique(centerpiece, ("system", "time_s"), "centerpiece.csv")
+    _validate_exact_values(
+        centerpiece,
+        "system",
+        frozenset(EXPERIMENT_SYSTEMS),
+        "centerpiece.csv",
+    )
+    _validate_unique(classification, ("class",), "classification.csv")
+    _validate_exact_values(
+        classification,
+        "class",
+        frozenset(label.name for label in TRAINING_LABELS),
+        "classification.csv",
+    )
+    _validate_unique(overhead, ("pipeline", "latency_ms"), "overhead.csv")
+    _validate_exact_values(overhead, "pipeline", frozenset(("minimal", "full")), "overhead.csv")
+    _validate_unique(scaling, ("concurrent_flows",), "scaling.csv")
+    _validate_unique(evasion, ("think_time_ms",), "evasion.csv")
+    _validate_unique(importances, ("feature",), "feature_importance.csv")
+    _validate_exact_values(
+        importances,
+        "feature",
+        frozenset(FEATURE_ORDER),
+        "feature_importance.csv",
+    )
+    _validate_ranges(
+        centerpiece,
+        {"time_s": (0.0, None), "human_p99_ms": (0.0, None)},
+        "centerpiece.csv",
+    )
+    _validate_ranges(
+        classification,
+        {"precision": (0.0, 1.0), "recall": (0.0, 1.0)},
+        "classification.csv",
+    )
+    _validate_ranges(overhead, {"latency_ms": (0.0, None)}, "overhead.csv")
+    _validate_ranges(
+        scaling,
+        {
+            "concurrent_flows": (1.0, None),
+            "accuracy": (0.0, 1.0),
+            "memory_bytes": (0.0, None),
+            "collision_rate": (0.0, 1.0),
+        },
+        "scaling.csv",
+    )
+    _validate_ranges(
+        evasion,
+        {
+            "think_time_ms": (0.0, None),
+            "accuracy": (0.0, 1.0),
+            "throughput_tps": (0.0, None),
+        },
+        "evasion.csv",
+    )
+    _validate_ranges(importances, {"importance": (0.0, 1.0)}, "feature_importance.csv")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     outputs = tuple(output_dir / name for name in FIGURE_NAMES)
@@ -134,9 +193,53 @@ def _validate_numeric(
     for line_number, row in enumerate(rows, start=2):
         for field in fields:
             try:
-                float(row[field])
+                value = float(row[field])
             except (KeyError, TypeError, ValueError) as exc:
                 raise PlotInputError(f"{name} has invalid {field} on line {line_number}") from exc
+            if not math.isfinite(value):
+                raise PlotInputError(f"{name} requires finite {field} on line {line_number}")
+
+
+def _validate_unique(
+    rows: Sequence[Mapping[str, str]],
+    fields: tuple[str, ...],
+    name: str,
+) -> None:
+    seen: set[tuple[str, ...]] = set()
+    for line_number, row in enumerate(rows, start=2):
+        key = tuple(row[field] for field in fields)
+        if key in seen:
+            label = "/".join(fields)
+            raise PlotInputError(f"{name} has duplicate {label} on line {line_number}")
+        seen.add(key)
+
+
+def _validate_exact_values(
+    rows: Sequence[Mapping[str, str]],
+    field: str,
+    expected: frozenset[str],
+    name: str,
+) -> None:
+    actual = frozenset(row[field] for row in rows)
+    if actual != expected:
+        raise PlotInputError(
+            f"{name} {field} values must be exactly {sorted(expected)}; got {sorted(actual)}"
+        )
+
+
+def _validate_ranges(
+    rows: Sequence[Mapping[str, str]],
+    ranges: Mapping[str, tuple[float, float | None]],
+    name: str,
+) -> None:
+    for line_number, row in enumerate(rows, start=2):
+        for field, (minimum, maximum) in ranges.items():
+            value = float(row[field])
+            if value < minimum or (maximum is not None and value > maximum):
+                upper = "infinity" if maximum is None else f"{maximum:g}"
+                raise PlotInputError(
+                    f"{name} {field} must be between {minimum:g} and {upper} on line {line_number}"
+                )
 
 
 def _plot_centerpiece(rows: Sequence[Mapping[str, str]], output: Path) -> None:

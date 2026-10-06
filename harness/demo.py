@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import math
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
@@ -27,6 +28,8 @@ AGENT_MODULES = (
     "harness.agents.claude_mcp",
 )
 BURST_PARALLELISM = {"low": 2, "med": 10, "high": 50}
+BURST_FLOWS_PER_SECOND = {"low": 5, "med": 20, "high": 50}
+AGENT_SOURCE_IPS = ("10.0.0.1", "10.0.0.4", "10.0.0.5", "10.0.0.6")
 
 
 @dataclass(frozen=True)
@@ -130,7 +133,16 @@ def build_storm_plan(config: StormConfig) -> StormPlan:
             ),
         ),
     )
-    parallelism = BURST_PARALLELISM[config.burst_intensity]
+    task_count = _task_count(config.task_script)
+    share_fraction = config.agent_share_pct / 100
+    parallelism = max(
+        1,
+        math.ceil(BURST_PARALLELISM[config.burst_intensity] * share_fraction),
+    )
+    total_calls = math.ceil(
+        BURST_FLOWS_PER_SECOND[config.burst_intensity] * share_fraction * config.duration_s
+    )
+    repetitions = max(1, math.ceil(total_calls / (len(AGENT_MODULES) * task_count)))
     agents = StormPhase(
         "agent-storm",
         tuple(
@@ -143,7 +155,7 @@ def build_storm_plan(config: StormConfig) -> StormPlan:
                 "--task-script",
                 str(config.task_script),
                 "--source-ip",
-                "10.0.0.1",
+                AGENT_SOURCE_IPS[index],
                 "--label",
                 "agent-interactive" if index < 2 else "agent-bulk",
                 "--parallelism",
@@ -152,6 +164,8 @@ def build_storm_plan(config: StormConfig) -> StormPlan:
                 "0.0",
                 "--seed",
                 str(config.seed),
+                "--repetitions",
+                str(repetitions),
                 "--orchestration-log",
                 str(orchestration_log),
             )
@@ -170,6 +184,16 @@ def build_storm_plan(config: StormConfig) -> StormPlan:
     )
 
 
+def _task_count(task_script: Path) -> int:
+    try:
+        tasks = json.loads(task_script.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"could not parse task script: {task_script}") from exc
+    if not isinstance(tasks, list) or not tasks:
+        raise ValueError("task script must be a non-empty JSON list")
+    return len(tasks)
+
+
 def write_storm_plan(plan: StormPlan, output_path: Path) -> None:
     """Write a deterministic JSON representation of a storm plan.
 
@@ -184,6 +208,18 @@ def write_storm_plan(plan: StormPlan, output_path: Path) -> None:
     )
 
 
+def require_live_executor() -> None:
+    """Fail until the persistent Person 1/2 data-plane orchestrator exists.
+
+    Raises:
+        RuntimeError: Always, while the required P4/controller pipeline is absent.
+    """
+    raise RuntimeError(
+        "persistent experiment execution is unavailable: the Person 1/2 "
+        "agent-aware P4 data plane and controller pipeline are not present"
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Validate and materialize one storm plan for Linux orchestration.
 
@@ -194,6 +230,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         Zero when a valid plan is written.
     """
     parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--plan-only", action="store_true")
+    mode.add_argument("--execute", action="store_true")
     parser.add_argument("--system", required=True)
     parser.add_argument("--link-mbps", type=int, required=True)
     parser.add_argument("--agent-share-pct", type=int, required=True)
@@ -219,9 +258,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=args.output_dir,
             task_script=args.task_script,
         )
+        if args.execute:
+            require_live_executor()
         output_path = args.output_dir / "storm_plan.json"
         write_storm_plan(build_storm_plan(config), output_path)
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
         LOGGER.error("storm plan is invalid: %s", exc)
         return 1
     LOGGER.info("wrote storm plan: %s", output_path)

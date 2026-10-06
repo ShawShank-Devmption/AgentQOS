@@ -45,6 +45,7 @@ class RunnerConfig:
     parallelism: int
     think_time_s: float
     seed: int
+    repetitions: int = 1
 
     def __post_init__(self) -> None:
         parsed_url = urlparse(self.target_url)
@@ -62,6 +63,8 @@ class RunnerConfig:
             raise ValueError("think_time_s must be non-negative")
         if self.seed < 0:
             raise ValueError("seed must be non-negative")
+        if self.repetitions <= 0:
+            raise ValueError("repetitions must be positive")
 
 
 @dataclass(frozen=True)
@@ -128,7 +131,7 @@ def run_agent(
     """
     if not source_framework.strip():
         raise ValueError("source_framework must not be empty")
-    tasks = load_tasks(config)
+    tasks = load_tasks(config) * config.repetitions
     call = tool_call or send_tool_call
     start_time = Decimal(str(time.time()))
     completed = 0
@@ -219,6 +222,7 @@ def runner_main(source_framework: str, argv: Sequence[str] | None = None) -> int
     parser.add_argument("--parallelism", type=int, default=1)
     parser.add_argument("--think-time", type=float, default=0.0)
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--orchestration-log", type=Path, required=True)
     args = parser.parse_args(argv)
     label = (
@@ -236,6 +240,7 @@ def runner_main(source_framework: str, argv: Sequence[str] | None = None) -> int
                 parallelism=args.parallelism,
                 think_time_s=args.think_time,
                 seed=args.seed,
+                repetitions=args.repetitions,
             ),
             source_framework,
         )

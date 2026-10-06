@@ -27,13 +27,19 @@ python -m eval.run_experiment eval/configs/fifo_sanity.yaml \
   --execute --dry-run --project-root /tmp/agentqos-dry-run
 ```
 
-Execute in the documented idle Linux VM:
+The live entry point is reserved, but intentionally fails before running baseline setup today:
 
 ```bash
 make experiment CONFIG=eval/configs/fifo_sanity.yaml
 ```
 
-The four baseline sanity configs are `fifo_sanity.yaml`, `diffserv_sanity.yaml`,
+Persistent execution depends on the Person 1/2 `agent_aware.p4` classifier/QoS pipeline and its
+controller lifecycle, which are not present in this checkout. The failure is deliberate: a storm
+plan is not experiment evidence. Once that dependency lands, the executor must start the topology
+before installing baseline commands, drive the complete duration, collect pcaps/logs, and only then
+allow a manifest to become `complete`.
+
+The four baseline sanity definitions are `fifo_sanity.yaml`, `diffserv_sanity.yaml`,
 `fairq_sanity.yaml`, and `app_limiter_sanity.yaml`. The five-seed proposed-system grid is
 `burst_sweep_v1.yaml`; create equivalent frozen-schema configs for each baseline rather than
 editing a config between runs.

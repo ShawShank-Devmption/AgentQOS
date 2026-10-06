@@ -24,11 +24,11 @@ def plan(link_mbps: int) -> BaselinePlan:
     return BaselinePlan(
         name="diffserv",
         setup_commands=(
-            ("tc", "qdisc", "replace", "dev", "s1-eth4", "root", "handle", "1:", "prio"),
+            ("tc", "qdisc", "replace", "dev", "s1-eth7", "root", "handle", "1:", "prio"),
             mark_command,
         ),
         teardown_commands=(
             ("iptables", "-t", "mangle", "-D", *mark_command[4:]),
-            ("tc", "qdisc", "del", "dev", "s1-eth4", "root"),
+            ("tc", "qdisc", "del", "dev", "s1-eth7", "root"),
         ),
     )

@@ -1,6 +1,7 @@
 """Tests for orchestration-derived ground-truth labels."""
 
 import csv
+import json
 from decimal import Decimal
 from ipaddress import IPv4Address
 from pathlib import Path
@@ -165,6 +166,50 @@ def test_capture_windows_round_trip_through_jsonl(tmp_path: Path) -> None:
 def test_malformed_orchestration_log_is_rejected(tmp_path: Path) -> None:
     log_path = tmp_path / "orchestration.jsonl"
     log_path.write_text('{"source_ip": "not-an-ip"}\n', encoding="utf-8")
+
+    with pytest.raises(PcapInputError, match="line 1"):
+        read_capture_windows(log_path)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {
+            "source_ip": "10.0.0.1",
+            "start_time_s": "-1",
+            "end_time_s": "2",
+            "label": 2,
+            "source_framework": "browser-use",
+        },
+        {
+            "source_ip": "10.0.0.1",
+            "start_time_s": "NaN",
+            "end_time_s": "Infinity",
+            "label": 2,
+            "source_framework": "browser-use",
+        },
+        {
+            "source_ip": "10.0.0.1",
+            "start_time_s": "1",
+            "end_time_s": "2",
+            "label": True,
+            "source_framework": "browser-use",
+        },
+        {
+            "source_ip": "10.0.0.1",
+            "start_time_s": "1",
+            "end_time_s": "2",
+            "label": 2,
+            "source_framework": None,
+        },
+    ],
+)
+def test_orchestration_log_rejects_coerced_or_non_finite_values(
+    tmp_path: Path,
+    entry: dict[str, object],
+) -> None:
+    log_path = tmp_path / "orchestration.jsonl"
+    log_path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
 
     with pytest.raises(PcapInputError, match="line 1"):
         read_capture_windows(log_path)
