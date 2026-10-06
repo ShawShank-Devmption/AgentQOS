@@ -1,6 +1,9 @@
 """Ground-truth flow labeling from orchestration windows and captured packets."""
 
 import csv
+import json
+from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from ipaddress import IPv4Address
@@ -75,6 +78,16 @@ class PcapInputError(ValueError):
     """Raised when a pcap cannot be read or labeled unambiguously."""
 
 
+@dataclass(frozen=True)
+class CorpusVerification:
+    """Orchestration consistency summary for a labeled corpus."""
+
+    total_flows: int
+    verified_flows: int
+    verification_rate: float
+    framework_counts: dict[str, int]
+
+
 def label_pcap_flows(pcap_path: Path, windows: tuple[CaptureWindow, ...]) -> tuple[FlowLabel, ...]:
     """Join pcap flows to runner-owned intervals without inspecting traffic features.
 
@@ -126,6 +139,106 @@ def write_labels(labels: tuple[FlowLabel, ...], output_path: Path) -> None:
         writer = csv.DictWriter(output_file, fieldnames=LABEL_FIELDS)
         writer.writeheader()
         writer.writerows(label.as_dict() for label in labels)
+
+
+def write_capture_window(window: CaptureWindow, output_path: Path) -> None:
+    """Append one runner-owned ground-truth interval to a JSONL log.
+
+    Args:
+        window: Validated orchestration interval.
+        output_path: Append-only JSONL destination.
+    """
+    entry = {
+        "source_ip": str(window.source_ip),
+        "start_time_s": str(window.start_time_s),
+        "end_time_s": str(window.end_time_s),
+        "label": window.label.value,
+        "source_framework": window.source_framework,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("a", encoding="utf-8") as output_file:
+        output_file.write(json.dumps(entry, sort_keys=True))
+        output_file.write("\n")
+
+
+def read_capture_windows(log_path: Path) -> tuple[CaptureWindow, ...]:
+    """Read runner intervals from an orchestration JSONL log.
+
+    Args:
+        log_path: Log created by `write_capture_window`.
+
+    Returns:
+        Windows in file order.
+
+    Raises:
+        FileNotFoundError: If the log does not exist.
+        PcapInputError: If any non-empty line is malformed.
+    """
+    if not log_path.is_file():
+        raise FileNotFoundError(log_path)
+    windows: list[CaptureWindow] = []
+    try:
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError) as exc:
+        raise PcapInputError(f"could not read orchestration log: {log_path}") from exc
+    for line_number, raw_line in enumerate(lines, start=1):
+        if not raw_line.strip():
+            continue
+        try:
+            entry = json.loads(raw_line)
+            if not isinstance(entry, Mapping):
+                raise ValueError("entry must be an object")
+            window = CaptureWindow(
+                source_ip=IPv4Address(str(entry["source_ip"])),
+                start_time_s=Decimal(str(entry["start_time_s"])),
+                end_time_s=Decimal(str(entry["end_time_s"])),
+                label=TrafficClass(int(entry["label"])),
+                source_framework=str(entry["source_framework"]),
+            )
+        except (
+            InvalidOperation,
+            KeyError,
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            raise PcapInputError(
+                f"invalid orchestration log entry on line {line_number}: {log_path}"
+            ) from exc
+        windows.append(window)
+    return tuple(windows)
+
+
+def verify_corpus(
+    labels: tuple[FlowLabel, ...],
+    windows: tuple[CaptureWindow, ...],
+) -> CorpusVerification:
+    """Check that labels remain traceable to runner-owned orchestration windows.
+
+    Args:
+        labels: Produced `labels.csv` rows.
+        windows: Runner intervals used to derive those rows.
+
+    Returns:
+        Counts and the fraction of flows consistent with orchestration metadata.
+    """
+    verified = sum(
+        any(
+            label.src_ip == str(window.source_ip)
+            and label.label == window.label.value
+            and label.source_framework == window.source_framework
+            for window in windows
+        )
+        for label in labels
+    )
+    total = len(labels)
+    framework_counts = dict(sorted(Counter(label.source_framework for label in labels).items()))
+    return CorpusVerification(
+        total_flows=total,
+        verified_flows=verified,
+        verification_rate=verified / total if total else 0.0,
+        framework_counts=framework_counts,
+    )
 
 
 def _validate_non_overlapping_windows(windows: tuple[CaptureWindow, ...]) -> None:

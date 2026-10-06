@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import random
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from decimal import Decimal
@@ -18,7 +19,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from common.contracts import TRAINING_LABELS, TrafficClass
-from harness.capture import CaptureWindow
+from harness.capture import CaptureWindow, write_capture_window
 
 LOGGER = logging.getLogger(__name__)
 ToolCall = Callable[[str, str, dict[str, object]], object]
@@ -194,6 +195,61 @@ def send_tool_call(target_url: str, tool: str, arguments: dict[str, object]) -> 
     if "result" not in decoded:
         raise RuntimeError("MCP target response omitted result")
     return decoded["result"]
+
+
+def runner_main(source_framework: str, argv: Sequence[str] | None = None) -> int:
+    """Run one framework adapter through the shared deterministic interface.
+
+    Args:
+        source_framework: Frozen adapter identifier written to `labels.csv`.
+        argv: Optional command-line arguments.
+
+    Returns:
+        Zero when every task completes, otherwise one.
+    """
+    parser = argparse.ArgumentParser(description=f"Run {source_framework} MCP traffic")
+    parser.add_argument("--target-url", required=True)
+    parser.add_argument("--task-script", type=Path, required=True)
+    parser.add_argument("--source-ip", type=IPv4Address, required=True)
+    parser.add_argument(
+        "--label",
+        choices=("agent-interactive", "agent-bulk"),
+        default="agent-interactive",
+    )
+    parser.add_argument("--parallelism", type=int, default=1)
+    parser.add_argument("--think-time", type=float, default=0.0)
+    parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--orchestration-log", type=Path, required=True)
+    args = parser.parse_args(argv)
+    label = (
+        TrafficClass.AGENT_INTERACTIVE
+        if args.label == "agent-interactive"
+        else TrafficClass.AGENT_BULK
+    )
+    try:
+        record = run_agent(
+            RunnerConfig(
+                target_url=args.target_url,
+                task_script=args.task_script,
+                source_ip=args.source_ip,
+                label=label,
+                parallelism=args.parallelism,
+                think_time_s=args.think_time,
+                seed=args.seed,
+            ),
+            source_framework,
+        )
+        write_capture_window(record.window, args.orchestration_log)
+    except (FileNotFoundError, TypeError, ValueError) as exc:
+        LOGGER.error("%s runner configuration failed: %s", source_framework, exc)
+        return 1
+    LOGGER.info(
+        "%s runner finished: completed=%d failed=%d",
+        source_framework,
+        record.completed,
+        record.failed,
+    )
+    return int(record.failed != 0)
 
 
 def _execute_task(

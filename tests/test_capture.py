@@ -9,7 +9,16 @@ import pytest
 from scapy.all import IP, TCP, UDP, Ether, wrpcap
 
 from common.contracts import LABEL_FIELDS, TrafficClass
-from harness.capture import CaptureWindow, PcapInputError, label_pcap_flows, write_labels
+from harness.capture import (
+    CaptureWindow,
+    FlowLabel,
+    PcapInputError,
+    label_pcap_flows,
+    read_capture_windows,
+    verify_corpus,
+    write_capture_window,
+    write_labels,
+)
 
 
 def _timestamped_packet(packet: object, timestamp: str) -> object:
@@ -126,3 +135,77 @@ def test_unknown_label_is_rejected() -> None:
             TrafficClass.UNKNOWN,
             "fixture",
         )
+
+
+def test_capture_windows_round_trip_through_jsonl(tmp_path: Path) -> None:
+    log_path = tmp_path / "orchestration.jsonl"
+    windows = (
+        CaptureWindow(
+            IPv4Address("10.0.0.1"),
+            Decimal("100.125"),
+            Decimal("101.875"),
+            TrafficClass.AGENT_INTERACTIVE,
+            "browser-use",
+        ),
+        CaptureWindow(
+            IPv4Address("10.0.0.2"),
+            Decimal("200"),
+            Decimal("201"),
+            TrafficClass.HUMAN_INTERACTIVE,
+            "browser-capture",
+        ),
+    )
+    for window in windows:
+        write_capture_window(window, log_path)
+
+    assert read_capture_windows(log_path) == windows
+
+
+def test_malformed_orchestration_log_is_rejected(tmp_path: Path) -> None:
+    log_path = tmp_path / "orchestration.jsonl"
+    log_path.write_text('{"source_ip": "not-an-ip"}\n', encoding="utf-8")
+
+    with pytest.raises(PcapInputError, match="line 1"):
+        read_capture_windows(log_path)
+
+
+def test_corpus_verification_reports_framework_counts_and_rate() -> None:
+    windows = (
+        CaptureWindow(
+            IPv4Address("10.0.0.1"),
+            Decimal("1"),
+            Decimal("2"),
+            TrafficClass.AGENT_INTERACTIVE,
+            "browser-use",
+        ),
+    )
+    labels = (
+        _flow_label("10.0.0.1", TrafficClass.AGENT_INTERACTIVE, "browser-use", 40_000),
+        _flow_label("10.0.0.9", TrafficClass.AGENT_BULK, "unverified", 40_001),
+    )
+
+    verification = verify_corpus(labels, windows)
+
+    assert verification.total_flows == 2
+    assert verification.verified_flows == 1
+    assert verification.verification_rate == 0.5
+    assert verification.framework_counts == {"browser-use": 1, "unverified": 1}
+
+
+def _flow_label(
+    source_ip: str,
+    label: TrafficClass,
+    framework: str,
+    source_port: int,
+) -> FlowLabel:
+    return FlowLabel(
+        flow_id=f"{source_ip}:{source_port}-10.0.0.100:443-6",
+        src_ip=source_ip,
+        dst_ip="10.0.0.100",
+        proto=6,
+        src_port=source_port,
+        dst_port=443,
+        label=label.value,
+        source_framework=framework,
+        pcap_file="capture.pcap",
+    )
