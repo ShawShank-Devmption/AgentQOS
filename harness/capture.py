@@ -1,9 +1,11 @@
 """Ground-truth flow labeling from orchestration windows and captured packets."""
 
+import argparse
 import csv
 import json
+import logging
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from ipaddress import IPv4Address
@@ -13,6 +15,8 @@ from scapy.all import IP, TCP, UDP, PcapReader
 from scapy.error import Scapy_Exception
 
 from common.contracts import LABEL_FIELDS, TRAINING_LABELS, TrafficClass
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -241,6 +245,39 @@ def verify_corpus(
     )
 
 
+def main(argv: Sequence[str] | None = None) -> int:
+    """Join one pcap to orchestration windows and write frozen-schema labels.
+
+    Args:
+        argv: Optional command-line arguments.
+
+    Returns:
+        Zero when at least one labeled flow is written, otherwise one.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pcap", type=Path, required=True)
+    parser.add_argument("--orchestration-log", type=Path, required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    try:
+        windows = read_capture_windows(args.orchestration_log)
+        labels = label_pcap_flows(args.pcap, windows)
+        if not labels:
+            raise PcapInputError("capture contains no flows owned by orchestration windows")
+        write_labels(labels, args.output)
+        verification = verify_corpus(labels, windows)
+    except (FileNotFoundError, PcapInputError, TypeError, ValueError) as exc:
+        LOGGER.error("capture labeling failed: %s", exc)
+        return 1
+    LOGGER.info(
+        "wrote %d labels with %.1f%% orchestration verification",
+        verification.total_flows,
+        verification.verification_rate * 100,
+    )
+    return 0
+
+
 def _validate_non_overlapping_windows(windows: tuple[CaptureWindow, ...]) -> None:
     ordered = sorted(windows, key=lambda window: (window.source_ip, window.start_time_s))
     for previous, current in zip(ordered, ordered[1:], strict=False):
@@ -294,3 +331,7 @@ def _label_packet(
         source_framework=window.source_framework,
         pcap_file=pcap_name,
     )
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

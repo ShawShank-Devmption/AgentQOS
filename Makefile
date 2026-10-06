@@ -6,8 +6,14 @@ PYTEST := $(if $(wildcard $(VENV_BIN)/pytest),$(VENV_BIN)/pytest,pytest)
 PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3.11)
 P4_PROGRAMS := $(wildcard p4src/l2fwd.p4 p4src/agent_aware.p4)
 P4_OUTPUTS := $(patsubst p4src/%.p4,build/%.json,$(P4_PROGRAMS))
+CONFIG ?=
+PCAP ?=
+ORCHESTRATION_LOG ?=
+LABELS ?= results/corpus/labels.csv
+RAW_RESULTS ?= results/aggregates
+FIGURES ?= results/figures
 
-.PHONY: lint fmt test build dev-env smoke-m1 review-config review-1-host
+.PHONY: lint fmt test build dev-env smoke-m1 corpus experiment figures review-config review-1-host
 
 lint:
 	$(RUFF) check .
@@ -38,6 +44,18 @@ dev-env:
 # Linux/root only: launches Mininet + BMv2, installs L2 forwarding, then runs ping and iperf3.
 smoke-m1: build/l2fwd.json
 	sudo $(PYTHON) -m harness.topology --p4-json build/l2fwd.json
+
+corpus:
+	@test -n "$(PCAP)" || { echo "PCAP is required"; exit 2; }
+	@test -n "$(ORCHESTRATION_LOG)" || { echo "ORCHESTRATION_LOG is required"; exit 2; }
+	$(PYTHON) -m harness.capture --pcap "$(PCAP)" --orchestration-log "$(ORCHESTRATION_LOG)" --output "$(LABELS)"
+
+experiment:
+	@test -n "$(CONFIG)" || { echo "CONFIG is required"; exit 2; }
+	$(PYTHON) -m eval.run_experiment "$(CONFIG)" --execute
+
+figures:
+	$(PYTHON) -m eval.plots "$(RAW_RESULTS)" "$(FIGURES)"
 
 review-config:
 	$(PYTHON) -m eval.run_experiment eval/configs/review_1_smoke.yaml

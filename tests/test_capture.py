@@ -19,6 +19,7 @@ from harness.capture import (
     write_capture_window,
     write_labels,
 )
+from harness.capture import main as capture_main
 
 
 def _timestamped_packet(packet: object, timestamp: str) -> object:
@@ -190,6 +191,49 @@ def test_corpus_verification_reports_framework_counts_and_rate() -> None:
     assert verification.verified_flows == 1
     assert verification.verification_rate == 0.5
     assert verification.framework_counts == {"browser-use": 1, "unverified": 1}
+
+
+def test_capture_cli_writes_labels_from_orchestration_log(tmp_path: Path) -> None:
+    pcap_path = tmp_path / "capture.pcap"
+    wrpcap(
+        str(pcap_path),
+        [
+            _timestamped_packet(
+                Ether() / IP(src="10.0.0.1", dst="10.0.0.100") / TCP(sport=45_000, dport=443),
+                "10.5",
+            )
+        ],
+    )
+    orchestration_path = tmp_path / "orchestration.jsonl"
+    write_capture_window(
+        CaptureWindow(
+            IPv4Address("10.0.0.1"),
+            Decimal("10"),
+            Decimal("11"),
+            TrafficClass.AGENT_INTERACTIVE,
+            "browser-use",
+        ),
+        orchestration_path,
+    )
+    labels_path = tmp_path / "labels.csv"
+
+    result = capture_main(
+        [
+            "--pcap",
+            str(pcap_path),
+            "--orchestration-log",
+            str(orchestration_path),
+            "--output",
+            str(labels_path),
+        ]
+    )
+
+    assert result == 0
+    assert (
+        labels_path.read_text(encoding="utf-8")
+        .splitlines()[1]
+        .endswith(",2,browser-use,capture.pcap")
+    )
 
 
 def _flow_label(
