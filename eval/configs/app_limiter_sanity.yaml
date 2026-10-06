@@ -1,0 +1,9 @@
+name: app_limiter_sanity
+system: app_limiter
+topology: choke_v1
+link_mbps: 20
+agent_share_pct: [30]
+burst_intensity: [low]
+duration_s: 30
+seeds: [1]
+outputs: results/app_limiter_sanity/

@@ -1,0 +1,9 @@
+name: fifo_sanity
+system: fifo
+topology: choke_v1
+link_mbps: 20
+agent_share_pct: [30]
+burst_intensity: [low]
+duration_s: 30
+seeds: [1]
+outputs: results/fifo_sanity/

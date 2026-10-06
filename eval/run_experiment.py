@@ -1,9 +1,20 @@
-"""Validate experiment inputs before the Phase 4 execution engine is added."""
+"""Validate, expand, lock, and execute reproducible experiment configurations."""
+
+from __future__ import annotations
 
 import argparse
+import fcntl
+import hashlib
+import json
 import logging
-from collections.abc import Mapping, Sequence
+import os
+import subprocess
+import sys
+from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from itertools import product
 from pathlib import Path
 from typing import cast
 
@@ -19,12 +30,17 @@ from common.contracts import (
     MIN_AGENT_SHARE_PCT,
     MIN_LINK_MBPS,
 )
+from eval.baselines.base import BaselinePlan, baseline_plan
 
 LOGGER = logging.getLogger(__name__)
 
 
 class ConfigError(ValueError):
     """Raised when an experiment configuration violates design section 4.6."""
+
+
+class ExperimentLockedError(RuntimeError):
+    """Raised when another experiment already owns the host lock."""
 
 
 @dataclass(frozen=True)
@@ -40,6 +56,58 @@ class ExperimentConfig:
     duration_s: int
     seeds: tuple[int, ...]
     outputs: Path
+
+
+@dataclass(frozen=True)
+class RunSpec:
+    """One immutable cell in the experiment grid."""
+
+    name: str
+    system: str
+    topology: str
+    link_mbps: int
+    agent_share_pct: int
+    burst_intensity: str
+    duration_s: int
+    seed: int
+    config_hash: str
+    output_dir: Path
+
+
+CommandRunner = Callable[[tuple[str, ...]], None]
+
+
+class ExperimentLock(AbstractContextManager["ExperimentLock"]):
+    """Non-blocking, host-wide lock for experiment result integrity (§7.19)."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._handle: object | None = None
+
+    def __enter__(self) -> ExperimentLock:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        handle = self._path.open("a+", encoding="utf-8")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            handle.close()
+            raise ExperimentLockedError(
+                f"another experiment is already running; lock: {self._path}"
+            ) from exc
+        handle.seek(0)
+        handle.truncate()
+        handle.write(f"pid={os.getpid()}\n")
+        handle.flush()
+        self._handle = handle
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        del exc_type, exc_value, traceback
+        handle = self._handle
+        if handle is not None:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)  # type: ignore[attr-defined]
+            handle.close()  # type: ignore[attr-defined]
+            self._handle = None
 
 
 def load_config(config_path: Path) -> ExperimentConfig:
@@ -123,8 +191,143 @@ def load_config(config_path: Path) -> ExperimentConfig:
     )
 
 
+def config_hash(config: ExperimentConfig) -> str:
+    """Return the stable SHA-256 identity of a validated experiment config.
+
+    Args:
+        config: Validated frozen-schema configuration.
+
+    Returns:
+        Lowercase hexadecimal SHA-256 digest.
+    """
+    payload = {
+        "name": config.name,
+        "system": config.system,
+        "topology": config.topology,
+        "link_mbps": config.link_mbps,
+        "agent_share_pct": list(config.agent_share_pct),
+        "burst_intensity": list(config.burst_intensity),
+        "duration_s": config.duration_s,
+        "seeds": list(config.seeds),
+        "outputs": config.outputs.as_posix().rstrip("/"),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def expand_runs(config: ExperimentConfig, project_root: Path) -> tuple[RunSpec, ...]:
+    """Expand one config into deterministic share × burst × seed cells.
+
+    Args:
+        config: Validated grid definition.
+        project_root: Repository root beneath which result paths resolve.
+
+    Returns:
+        Run specifications in share, burst, then seed order.
+    """
+    digest = config_hash(config)
+    output_root = project_root / config.outputs / digest
+    return tuple(
+        RunSpec(
+            name=config.name,
+            system=config.system,
+            topology=config.topology,
+            link_mbps=config.link_mbps,
+            agent_share_pct=share,
+            burst_intensity=burst,
+            duration_s=config.duration_s,
+            seed=seed,
+            config_hash=digest,
+            output_dir=(output_root / f"{config.system}-share-{share}-burst-{burst}-seed-{seed}"),
+        )
+        for share, burst, seed in product(
+            config.agent_share_pct,
+            config.burst_intensity,
+            config.seeds,
+        )
+    )
+
+
+def execute_run(
+    run: RunSpec,
+    *,
+    dry_run: bool = False,
+    command_runner: CommandRunner | None = None,
+) -> None:
+    """Execute one append-only experiment cell and persist its manifest.
+
+    Args:
+        run: Immutable cell returned by `expand_runs`.
+        dry_run: Create a planned manifest without invoking external commands.
+        command_runner: Optional external command boundary for tests.
+
+    Raises:
+        FileExistsError: If this config-hash/seed cell already exists.
+        RuntimeError: If setup, workload, or teardown fails.
+    """
+    run.output_dir.mkdir(parents=True, exist_ok=False)
+    plan = baseline_plan(run.system, run.link_mbps)
+    workload = _workload_command(run)
+    manifest: dict[str, object] = {
+        **_run_values(run),
+        "status": "planned" if dry_run else "running",
+        "started_at": datetime.now(UTC).isoformat(),
+        "setup_commands": [list(command) for command in plan.setup_commands],
+        "workload_command": list(workload),
+        "teardown_commands": [list(command) for command in plan.teardown_commands],
+    }
+    manifest_path = run.output_dir / "manifest.json"
+    _write_manifest(manifest_path, manifest)
+    if dry_run:
+        return
+
+    runner = command_runner or _run_command
+    try:
+        for command in plan.setup_commands:
+            runner(command)
+        runner(workload)
+        for command in plan.teardown_commands:
+            runner(command)
+    except Exception as exc:
+        # §7.19: preserve the failed append-only cell and diagnostic; never reuse it silently.
+        manifest["status"] = "failed"
+        manifest["error"] = str(exc)
+        manifest["finished_at"] = datetime.now(UTC).isoformat()
+        _write_manifest(manifest_path, manifest)
+        _best_effort_teardown(plan, runner)
+        raise
+    manifest["status"] = "complete"
+    manifest["finished_at"] = datetime.now(UTC).isoformat()
+    _write_manifest(manifest_path, manifest)
+
+
+def execute_config(
+    config: ExperimentConfig,
+    project_root: Path,
+    lock_path: Path,
+    *,
+    dry_run: bool = False,
+) -> tuple[RunSpec, ...]:
+    """Execute all cells while holding the exclusive host lock.
+
+    Args:
+        config: Validated experiment grid.
+        project_root: Repository root for output resolution.
+        lock_path: Host-global lock file path.
+        dry_run: Write planned manifests without running commands.
+
+    Returns:
+        The complete ordered run matrix.
+    """
+    runs = expand_runs(config, project_root)
+    with ExperimentLock(lock_path):
+        for run in runs:
+            execute_run(run, dry_run=dry_run)
+    return runs
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """Validate one experiment configuration from the command line.
+    """Validate or execute one experiment configuration from the command line.
 
     Args:
         argv: Optional command-line arguments.
@@ -134,11 +337,35 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("config", type=Path)
+    parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--project-root", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--lock-path",
+        type=Path,
+        default=Path("/tmp/agentqos-experiment.lock"),
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     try:
         config = load_config(args.config)
-    except (ConfigError, FileNotFoundError) as exc:
+        if args.dry_run and not args.execute:
+            raise ConfigError("--dry-run requires --execute")
+        if args.execute:
+            runs = execute_config(
+                config,
+                args.project_root,
+                args.lock_path,
+                dry_run=args.dry_run,
+            )
+            LOGGER.info("processed %d experiment cells", len(runs))
+    except (
+        ConfigError,
+        ExperimentLockedError,
+        FileExistsError,
+        FileNotFoundError,
+        RuntimeError,
+    ) as exc:
         LOGGER.error("experiment config is invalid: %s", exc)
         return 1
     LOGGER.info(
@@ -148,6 +375,67 @@ def main(argv: Sequence[str] | None = None) -> int:
         len(config.seeds),
     )
     return 0
+
+
+def _run_values(run: RunSpec) -> dict[str, object]:
+    return {
+        "name": run.name,
+        "system": run.system,
+        "topology": run.topology,
+        "link_mbps": run.link_mbps,
+        "agent_share_pct": run.agent_share_pct,
+        "burst_intensity": run.burst_intensity,
+        "duration_s": run.duration_s,
+        "seed": run.seed,
+        "config_hash": run.config_hash,
+        "output_dir": str(run.output_dir),
+    }
+
+
+def _workload_command(run: RunSpec) -> tuple[str, ...]:
+    return (
+        sys.executable,
+        "-m",
+        "harness.demo",
+        "--system",
+        run.system,
+        "--link-mbps",
+        str(run.link_mbps),
+        "--agent-share-pct",
+        str(run.agent_share_pct),
+        "--burst-intensity",
+        run.burst_intensity,
+        "--duration-s",
+        str(run.duration_s),
+        "--seed",
+        str(run.seed),
+        "--output-dir",
+        str(run.output_dir),
+    )
+
+
+def _run_command(command: tuple[str, ...]) -> None:
+    try:
+        result = subprocess.run(command, capture_output=True, check=False, text=True)
+    except OSError as exc:
+        raise RuntimeError(f"could not execute command: {command[0]}") from exc
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "no diagnostic output"
+        raise RuntimeError(f"command failed ({command[0]}): {detail}")
+
+
+def _best_effort_teardown(plan: BaselinePlan, runner: CommandRunner) -> None:
+    for command in plan.teardown_commands:
+        try:
+            runner(command)
+        except Exception:
+            LOGGER.exception("baseline teardown failed: %s", command)
+
+
+def _write_manifest(path: Path, values: Mapping[str, object]) -> None:
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(values, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.replace(path)
 
 
 def _require_mapping(raw: object) -> Mapping[str, object]:

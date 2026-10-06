@@ -25,6 +25,16 @@ def test_review_smoke_config_is_valid() -> None:
     )
 
 
+@pytest.mark.parametrize("system", ["fifo", "diffserv", "fairq", "app_limiter"])
+def test_each_baseline_sanity_config_is_valid(system: str) -> None:
+    config = load_config(PROJECT_ROOT / f"eval/configs/{system}_sanity.yaml")
+
+    assert config.system == system
+    assert config.agent_share_pct == (30,)
+    assert config.burst_intensity == ("low",)
+    assert config.seeds == (1,)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "message"),
     [
