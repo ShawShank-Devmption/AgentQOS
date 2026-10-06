@@ -1,11 +1,28 @@
-"""Single source of truth for the `choke_v1` Mininet topology."""
+"""Single source of truth and Linux launcher for the `choke_v1` topology."""
 
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import platform
+import shutil
+import subprocess
+import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 from common.contracts import EXPERIMENT_TOPOLOGY, MAX_LINK_MBPS, MIN_LINK_MBPS
+from controller.switch_api import SwitchApi
 
 SWITCH_NAME = "s1"
+TARGET_NAME = "h_target"
+HUMAN_NAME = "h_human"
+FLOOD_GROUP = 1
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -25,6 +42,39 @@ HOSTS = (
     HostSpec("h_bulk", "background", "10.0.0.3/24", "00:00:00:00:00:03", 3),
     HostSpec("h_target", "target", "10.0.0.100/24", "00:00:00:00:00:64", 4),
 )
+
+
+@dataclass(frozen=True)
+class SwitchLaunchConfig:
+    """Validated inputs for launching the M1 BMv2 topology."""
+
+    p4_json: Path
+    link_mbps: int = 20
+    thrift_port: int = 9090
+    device_id: int = 0
+    iperf_duration_s: int = 2
+    switch_log: Path = Path("build/simple_switch.log")
+    simple_switch_path: Path = Path("simple_switch")
+    cli_path: Path = Path("simple_switch_CLI")
+
+    def __post_init__(self) -> None:
+        if not self.p4_json.is_file():
+            raise FileNotFoundError(self.p4_json)
+        topology_manifest(self.link_mbps)
+        if self.thrift_port <= 0 or self.thrift_port > 65_535:
+            raise ValueError("thrift_port must be between 1 and 65535")
+        if self.device_id < 0:
+            raise ValueError("device_id must be non-negative")
+        if self.iperf_duration_s <= 0:
+            raise ValueError("iperf_duration_s must be positive")
+
+
+@dataclass(frozen=True)
+class SmokeResult:
+    """Verified M1 connectivity evidence returned by the launcher."""
+
+    packet_loss_pct: float
+    bits_per_second: float
 
 
 def topology_manifest(link_mbps: int = 20) -> dict[str, Any]:
@@ -92,3 +142,188 @@ def build_topology(link_mbps: int = 20) -> object:
             options.update({"bw": link["bw_mbps"], "delay": f"{link['delay_ms']}ms"})
         topology.addLink(link["host"], SWITCH_NAME, **options)
     return topology
+
+
+def forwarding_commands() -> tuple[str, ...]:
+    """Return deterministic BMv2 CLI commands for flooding and known unicast.
+
+    Returns:
+        Commands that configure the M1 multicast group and L2 forwarding table.
+    """
+    commands = [
+        f"mc_mgrp_create {FLOOD_GROUP}",
+        "mc_node_create 0 1 2 3 4",
+        f"mc_node_associate {FLOOD_GROUP} 0",
+    ]
+    commands.extend(
+        f"table_add tbl_l2_forward set_egress_port {host.mac_address} => {host.switch_port}"
+        for host in HOSTS
+    )
+    return tuple(commands)
+
+
+def run_smoke(config: SwitchLaunchConfig) -> SmokeResult:
+    """Launch `choke_v1`, install forwarding, and verify ping plus iperf.
+
+    Args:
+        config: Validated Linux/BMv2 launch inputs.
+
+    Returns:
+        Packet-loss and iperf throughput evidence.
+
+    Raises:
+        RuntimeError: If the Linux runtime or a connectivity check fails.
+    """
+    _validate_linux_runtime()
+    network = _create_network(config)
+    try:
+        network.start()
+        SwitchApi(config.cli_path, config.thrift_port).run_commands(forwarding_commands())
+        packet_loss = float(network.pingAll(timeout="2"))
+        if packet_loss != 0.0:
+            raise RuntimeError(f"M1 pingall failed with {packet_loss:.1f}% packet loss")
+
+        target = network.get(TARGET_NAME)
+        human = network.get(HUMAN_NAME)
+        target.cmd("iperf3 -s -1 -D")
+        time.sleep(0.2)
+        raw_result = human.cmd(
+            f"iperf3 -c {HOSTS[3].ip_address.split('/')[0]} -t {config.iperf_duration_s} -J"
+        )
+        bits_per_second = _parse_iperf_throughput(raw_result)
+        LOGGER.info("M1 smoke passed: %.0f bits/s", bits_per_second)
+        return SmokeResult(packet_loss_pct=packet_loss, bits_per_second=bits_per_second)
+    finally:
+        network.stop()
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run the M1 topology smoke check from the command line.
+
+    Args:
+        argv: Optional command-line arguments.
+
+    Returns:
+        Zero when the smoke check succeeds.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--p4-json", type=Path, default=Path("build/l2fwd.json"))
+    parser.add_argument("--link-mbps", type=int, default=20)
+    parser.add_argument("--thrift-port", type=int, default=9090)
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    try:
+        result = run_smoke(
+            SwitchLaunchConfig(
+                p4_json=args.p4_json,
+                link_mbps=args.link_mbps,
+                thrift_port=args.thrift_port,
+            )
+        )
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        LOGGER.error("M1 smoke failed: %s", exc)
+        return 1
+    LOGGER.info(
+        "M1 result: packet_loss=%.1f%% throughput=%.0f bits/s",
+        result.packet_loss_pct,
+        result.bits_per_second,
+    )
+    return 0
+
+
+def _validate_linux_runtime() -> None:
+    if platform.system() != "Linux":
+        raise RuntimeError("the Mininet/BMv2 topology requires Linux")
+    if hasattr(os, "geteuid") and os.geteuid() != 0:
+        raise RuntimeError("the Mininet/BMv2 topology must run as root")
+    required = ("simple_switch", "simple_switch_CLI", "iperf3")
+    missing = [command for command in required if shutil.which(command) is None]
+    if missing:
+        raise RuntimeError(f"missing required Linux commands: {', '.join(missing)}")
+
+
+def _create_network(config: SwitchLaunchConfig) -> Any:
+    try:
+        from mininet.link import TCLink
+        from mininet.net import Mininet
+        from mininet.node import Switch
+    except ImportError as exc:
+        raise RuntimeError(
+            "Mininet is required; run this inside the Linux VM from docs/ENVIRONMENT.md"
+        ) from exc
+
+    class Bmv2Switch(Switch):
+        """Mininet switch backed by one `simple_switch` process."""
+
+        def start(self, controllers: list[object]) -> None:
+            del controllers
+            interface_args: list[str] = []
+            for interface in self.intfList():
+                port = self.ports.get(interface)
+                if port is None or port <= 0:
+                    continue
+                interface_args.extend(("-i", f"{port}@{interface.name}"))
+
+            config.switch_log.parent.mkdir(parents=True, exist_ok=True)
+            self._log_handle = config.switch_log.open("w", encoding="utf-8")
+            command = [
+                str(config.simple_switch_path),
+                "--device-id",
+                str(config.device_id),
+                "--thrift-port",
+                str(config.thrift_port),
+                *interface_args,
+                str(config.p4_json),
+            ]
+            try:
+                self._process = subprocess.Popen(
+                    command,
+                    stdout=self._log_handle,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                )
+            except OSError:
+                self._log_handle.close()
+                raise
+            time.sleep(0.2)
+            if self._process.poll() is not None:
+                self._log_handle.close()
+                raise RuntimeError(f"simple_switch exited during startup; see {config.switch_log}")
+
+        def stop(self, deleteIntfs: bool = True) -> None:  # noqa: N803
+            process = getattr(self, "_process", None)
+            if process is not None and process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=3)
+            log_handle = getattr(self, "_log_handle", None)
+            if log_handle is not None and not log_handle.closed:
+                log_handle.close()
+            super().stop(deleteIntfs)
+
+    return Mininet(
+        topo=build_topology(config.link_mbps),
+        switch=Bmv2Switch,
+        controller=None,
+        link=TCLink,
+        autoSetMacs=False,
+        autoStaticArp=False,
+    )
+
+
+def _parse_iperf_throughput(raw_result: str) -> float:
+    try:
+        parsed = json.loads(raw_result)
+        bits_per_second = float(parsed["end"]["sum_received"]["bits_per_second"])
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise RuntimeError("iperf3 returned an unreadable result") from exc
+    if bits_per_second <= 0:
+        raise RuntimeError("iperf3 reported no received traffic")
+    return bits_per_second
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -68,3 +68,25 @@ def test_read_register_surfaces_cli_failure() -> None:
             POLICY_VERSION_REGISTER,
             index=0,
         )
+
+
+def test_run_commands_sends_one_cli_batch() -> None:
+    succeeded = subprocess.CompletedProcess(args=[], returncode=0, stdout="Done\n", stderr="")
+    with patch("controller.switch_api.subprocess.run", return_value=succeeded) as run:
+        output = SwitchApi(Path("simple_switch_CLI"), thrift_port=9091).run_commands(
+            ("mc_mgrp_create 1", "mc_node_associate 1 0")
+        )
+
+    assert output == "Done\n"
+    run.assert_called_once_with(
+        ["simple_switch_CLI", "--thrift-port", "9091"],
+        input="mc_mgrp_create 1\nmc_node_associate 1 0\n",
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+
+def test_run_commands_rejects_empty_batch() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        SwitchApi().run_commands(())

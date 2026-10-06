@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 
 from common.contracts import REGISTER_NAMES
@@ -61,6 +62,40 @@ class SwitchApi:
             raise SwitchApiError(f"BMv2 register read failed: {detail}")
 
         return _parse_register_output(register_name, result.stdout)
+
+    def run_commands(self, commands: Sequence[str]) -> str:
+        """Execute a validated batch of BMv2 CLI commands.
+
+        Args:
+            commands: Non-empty CLI statements without embedded newlines.
+
+        Returns:
+            The CLI standard output.
+
+        Raises:
+            ValueError: If the batch or any command is invalid.
+            SwitchApiError: If the CLI cannot run or rejects the batch.
+        """
+        if not commands:
+            raise ValueError("BMv2 command batch must not be empty")
+        if any(not command.strip() or "\n" in command or "\r" in command for command in commands):
+            raise ValueError("BMv2 commands must be non-empty single-line strings")
+
+        try:
+            result = subprocess.run(
+                [str(self._cli_path), "--thrift-port", str(self._thrift_port)],
+                input="".join(f"{command}\n" for command in commands),
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+        except OSError as exc:
+            raise SwitchApiError(f"could not execute BMv2 CLI: {self._cli_path}") from exc
+
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip() or "no diagnostic output"
+            raise SwitchApiError(f"BMv2 command batch failed: {detail}")
+        return result.stdout
 
 
 def _parse_register_output(register_name: str, output: str) -> tuple[int, ...]:
