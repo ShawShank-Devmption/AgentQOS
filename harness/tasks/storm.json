@@ -1,0 +1,6 @@
+[
+  {"tool": "search", "arguments": {"query": "latency protection"}},
+  {"tool": "fetch", "arguments": {"resource": "mcp-overview"}},
+  {"tool": "compute", "arguments": {"expression": "(17 * 19) + 23"}},
+  {"tool": "fetch", "arguments": {"resource": "agent-qos"}}
+]

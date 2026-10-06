@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent-Aware Network</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; }
+    body { margin: 0; background: #08111f; color: #e8eef7; }
+    main { max-width: 1100px; margin: 0 auto; padding: 48px 24px; }
+    header { display: flex; justify-content: space-between; align-items: end; gap: 24px; }
+    h1 { margin: 0; font-size: clamp(2rem, 5vw, 4rem); letter-spacing: -0.05em; }
+    .eyebrow { color: #6ee7c7; font: 700 0.8rem/1.2 monospace; text-transform: uppercase; }
+    #status { color: #91a4bb; font: 0.85rem/1.4 monospace; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 36px; }
+    article { background: linear-gradient(145deg, #122239, #0c1829); border: 1px solid #263c58; border-radius: 18px; padding: 24px; box-shadow: 0 18px 50px #0006; }
+    article h2 { margin: 0 0 24px; font-size: 1rem; color: #a8bad0; }
+    .throughput { font-size: 2.8rem; font-weight: 750; letter-spacing: -0.05em; }
+    .unit { color: #6ee7c7; font-size: 0.9rem; letter-spacing: 0; }
+    dl { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 24px 0 0; }
+    dt { color: #7187a1; font: 0.75rem/1.2 monospace; }
+    dd { margin: 4px 0 0; font-weight: 650; }
+    .error { color: #ff8b8b; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div><div class="eyebrow">Live experiment telemetry</div><h1>Agent-Aware Network</h1></div>
+      <div id="status">Waiting for metrics…</div>
+    </header>
+    <section class="grid" id="cards"></section>
+  </main>
+  <script>
+    const order = ["HUMAN_INTERACTIVE", "AGENT_INTERACTIVE", "AGENT_BULK"];
+    const label = value => value.replaceAll("_", " ");
+    async function refresh() {
+      const status = document.querySelector("#status");
+      try {
+        const response = await fetch("/api/metrics", {cache: "no-store"});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const snapshot = await response.json();
+        document.querySelector("#cards").innerHTML = order.map(name => {
+          const metric = snapshot.classes[name];
+          return `<article><h2>${label(name)}</h2><div class="throughput">${metric.throughput_mbps.toFixed(2)} <span class="unit">Mbps</span></div><dl><div><dt>p50</dt><dd>${metric.p50_ms.toFixed(1)} ms</dd></div><div><dt>p95</dt><dd>${metric.p95_ms.toFixed(1)} ms</dd></div><div><dt>p99</dt><dd>${metric.p99_ms.toFixed(1)} ms</dd></div></dl></article>`;
+        }).join("");
+        status.className = "";
+        status.textContent = `Updated ${snapshot.generated_at}`;
+      } catch (error) {
+        status.className = "error";
+        status.textContent = `Metrics unavailable: ${error.message}`;
+      }
+    }
+    refresh();
+    setInterval(refresh, 1000);
+  </script>
+</body>
+</html>
