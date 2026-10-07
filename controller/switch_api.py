@@ -119,6 +119,12 @@ def table_add_command(
     return " ".join(words)
 
 
+def table_set_default_command(table: str, action: str, params: Sequence[int]) -> str:
+    """Build a `table_set_default` (the action every miss gets)."""
+    _require_table(table)
+    return " ".join(["table_set_default", table, action, *(str(_unsigned(p)) for p in params)])
+
+
 def table_clear_command(table: str) -> str:
     """Build a `table_clear` for a contract table."""
     _require_table(table)

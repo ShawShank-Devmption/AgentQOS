@@ -15,6 +15,7 @@ class FakeBmv2:
         self.tables: dict[str, dict[str, str]] = {}
         self.registers: dict[tuple[str, int], int] = {}
         self.meters: dict[tuple[str, int], str] = {}
+        self.defaults: dict[str, str] = {}
         self.crash_after = crash_after
         self.executed = 0
 
@@ -40,6 +41,8 @@ class FakeBmv2:
             if key in entries:
                 raise SwitchApiError(f"Invalid table operation (DUPLICATE_ENTRY): {command}")
             entries[key] = command
+        elif verb == "table_set_default":
+            self.defaults[args[0]] = " ".join(args[1:])
         elif verb == "register_write":
             self.registers[(args[0], int(args[1]))] = int(args[2])
         elif verb == "meter_set_rates":

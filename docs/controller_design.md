@@ -22,6 +22,7 @@ sequenceDiagram
     API->>SW: register_read policy_version 0
     SW-->>Pol: v
     Pol->>API: execute([...]) (one CLI session)
+    API->>SW: table_set_default tbl_class_action = UNKNOWN treatment
     API->>SW: table_clear x11 (tree l0-l7, class_action, punt_filter, flow_override)
     API->>SW: table_add tbl_class_action x4, tbl_punt_filter x2, tree entries
     API->>SW: meter_set_rates M_AI/M_AB x {normal, protective}
@@ -31,8 +32,10 @@ sequenceDiagram
 
 - Every start pushes the full policy (G5). Clearing before adding makes a re-push idempotent, so
   BMv2 never returns `DUPLICATE_ENTRY`.
-- While the clear-and-add runs, tree tables may briefly be empty and flows classify UNKNOWN. That
-  is fail-open and lasts about one CLI session.
+- While the clear-and-add runs, tree tables may briefly be empty and flows classify UNKNOWN.
+  `tbl_class_action` misses get its default, which the push sets to the UNKNOWN treatment
+  *before* clearing. Every packet therefore stays fail-open (mid queue, DSCP 0) for about one CLI
+  session, whatever default the P4 program declares. Dev A must not make that default `const`.
 - `tbl_flow_override` is cleared because the TTL bookkeeping that owned it died with the previous
   process. The tree stays authoritative.
 

@@ -84,3 +84,14 @@ def test_bulk_meter_presets_both_installed() -> None:
     push_policy(switch, 20, None)
     assert {key[0] for key in switch.meters} == {METER_AGENT_INTERACTIVE, METER_AGENT_BULK}
     assert {key[1] for key in switch.meters} == {0, 1}
+
+
+def test_class_action_default_is_unknown_treatment_before_table_is_cleared() -> None:
+    # During the clear-then-add window every packet hits the default action; it must be the
+    # UNKNOWN treatment (fail-open), not whatever default the P4 program declares.
+    commands = policy_commands(20, None)
+    default = "table_set_default tbl_class_action set_class_action 0 1 0 0"
+    assert commands.index(default) < commands.index("table_clear tbl_class_action")
+    switch = FakeBmv2()
+    push_policy(switch, 20, None)
+    assert switch.defaults[CLASS_ACTION_TABLE] == "set_class_action 0 1 0 0"

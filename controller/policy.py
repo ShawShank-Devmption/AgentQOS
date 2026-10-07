@@ -21,6 +21,8 @@ from common.contracts import (
     PUNT_REASON_FIRST_PACKET,
     PUNT_REASON_LOW_CONFIDENCE,
     TREE_TABLE_NAMES,
+    ClassTreatment,
+    TrafficClass,
 )
 from controller.switch_api import (
     SwitchApi,
@@ -28,6 +30,7 @@ from controller.switch_api import (
     register_write_command,
     table_add_command,
     table_clear_command,
+    table_set_default_command,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -69,7 +72,10 @@ def push_policy(api: SwitchApi, link_mbps: int, tree: CompiledTree | None) -> in
 
 def policy_commands(link_mbps: int, tree: CompiledTree | None) -> list[str]:
     """Return every CLI command of a full policy push, in execution order."""
-    commands = [table_clear_command(table) for table in _OWNED_TABLES]
+    # Misses during the clear-then-add window get the UNKNOWN treatment (fail-open, NFR-6).
+    unknown = _class_action_params(CLASS_TREATMENTS[TrafficClass.UNKNOWN])
+    commands = [table_set_default_command(CLASS_ACTION_TABLE, CLASS_ACTION_NAME, unknown)]
+    commands += [table_clear_command(table) for table in _OWNED_TABLES]
     commands += _class_action_commands()
     commands += [table_add_command(PUNT_FILTER_TABLE, PUNT_ACTION, [r], []) for r in _PUNT_REASONS]
     commands += _meter_preset_commands(link_mbps)
@@ -98,14 +104,18 @@ def _class_action_commands() -> list[str]:
             CLASS_ACTION_TABLE,
             CLASS_ACTION_NAME,
             [int(traffic_class)],
-            [
-                treatment.dscp,
-                treatment.queue_priority,
-                METER_SELECT[treatment.meter_name],
-                treatment.ecn_threshold_pkts or 0,  # 0 disables ECN marking
-            ],
+            _class_action_params(treatment),
         )
         for traffic_class, treatment in CLASS_TREATMENTS.items()
+    ]
+
+
+def _class_action_params(treatment: ClassTreatment) -> list[int]:
+    return [
+        treatment.dscp,
+        treatment.queue_priority,
+        METER_SELECT[treatment.meter_name],
+        treatment.ecn_threshold_pkts or 0,  # 0 disables ECN marking
     ]
 
 
