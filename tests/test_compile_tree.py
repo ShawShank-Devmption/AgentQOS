@@ -1,5 +1,9 @@
 """Tree -> range-table compiler (design.md 4.5, 8 step 4)."""
 
+import json
+import pickle
+from pathlib import Path
+
 import numpy as np
 import pytest
 from sklearn.tree import DecisionTreeClassifier
@@ -13,7 +17,15 @@ from common.contracts import (
     TREE_TABLE_NAMES,
     TrafficClass,
 )
-from ml.compile_tree import compile_tree, leaf_decision, left_upper_bound
+from ml.compile_tree import (
+    GENERATED_BEGIN,
+    GENERATED_END,
+    compile_tree,
+    leaf_decision,
+    left_upper_bound,
+    main,
+    model_hash,
+)
 from tests.synthetic_corpus import synthetic_feature_frame
 
 
@@ -81,3 +93,26 @@ def test_model_with_wrong_feature_count_is_rejected() -> None:
     model = _fit(np.array([[0], [1]]), [1, 2])
     with pytest.raises(ValueError, match="features"):
         compile_tree(model)
+
+
+def test_cli_writes_compiled_tree_and_splices_p4(tmp_path: Path) -> None:
+    frame = synthetic_feature_frame(seed=2)
+    model = _fit(frame[list(FEATURE_ORDER)].to_numpy(), frame["label"].tolist(), max_depth=4)
+    model_path = tmp_path / "model.pkl"
+    model_path.write_bytes(pickle.dumps(model))
+    p4_path = tmp_path / "classifier.p4"
+    p4_path.write_text(f"control C() {{\n    {GENERATED_BEGIN}\n    {GENERATED_END}\n}}\n")
+    out = tmp_path / "compiled_tree.json"
+    args = ["--model", str(model_path), "--out", str(out), "--p4", str(p4_path)]
+    assert main(args) == 0
+    assert parse_compiled_tree(json.loads(out.read_text())).model_hash == model_hash(model)
+    assert "table tbl_tree_l7" in p4_path.read_text()
+
+
+def test_cli_fails_on_p4_without_markers(tmp_path: Path) -> None:
+    model_path = tmp_path / "model.pkl"
+    model_path.write_bytes(pickle.dumps(_fit(_rows(1, 9), [1, 2])))
+    p4_path = tmp_path / "classifier.p4"
+    p4_path.write_text("control C() {}\n")
+    args = ["--model", str(model_path), "--out", str(tmp_path / "o.json"), "--p4", str(p4_path)]
+    assert main(args) == 1

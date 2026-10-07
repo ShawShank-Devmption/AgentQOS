@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import logging
 import math
+import pickle
+from collections.abc import Sequence
+from pathlib import Path
 
 import numpy as np
 from sklearn.tree import DecisionTreeClassifier
@@ -21,6 +26,8 @@ from common.contracts import (
     TREE_TABLE_NAMES,
     TrafficClass,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 _LEAF = -1  # sklearn marks leaves with children_left == -1
 _FULL_RANGES = tuple((0, (1 << bits) - 1) for bits in FEATURE_BIT_WIDTHS)
@@ -184,3 +191,35 @@ def splice_generated(p4_source: str, declarations: str) -> str:
     head = p4_source[: begin + len(GENERATED_BEGIN)]
     indent = p4_source[p4_source.rfind("\n", 0, end) + 1 : end]
     return f"{head}\n{declarations}\n{indent}{p4_source[end:]}"
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Compile model.pkl to compiled_tree.json and optionally refresh classifier.p4's section.
+
+    Returns:
+        Zero on success, one if the model or the P4 file cannot be compiled.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--p4", type=Path, default=None)
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    try:
+        model = pickle.loads(args.model.read_bytes())  # our own train.py artifact
+        compiled = compile_tree(model)
+        if args.p4 is not None:
+            spliced = splice_generated(args.p4.read_text(), emit_p4_declarations())
+            args.p4.write_text(spliced)
+    except (OSError, ValueError, pickle.UnpicklingError) as exc:
+        LOGGER.error("compile failed: %s", exc)
+        return 1
+    args.out.write_text(json.dumps(compiled, indent=1) + "\n")
+    LOGGER.info(
+        "compiled %d entries for model %s", len(compiled["entries"]), compiled["model_hash"][:12]
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
