@@ -29,6 +29,8 @@ For a packet whose slot is owned by its flow (design.md §5.2 step 2):
 7. On the flow's **first payload-carrying packet only** (either direction): if the TCP payload
    starts with `0x16 0x03`, parse the ClientHello (§4) and write `reg_proto_meta`. Any other
    first payload leaves `reg_proto_meta = 0`. Later payloads are never parsed.
+   *Open (G18):* P4 needs a per-slot "payload seen" bit for this rule; see
+   `docs/feature_arithmetic_design_gaps.md`.
 
 **Packet size** is the frame length, `standard_metadata.packet_length`. Offline this is the pcap
 original length.
