@@ -39,3 +39,21 @@ including the new `reg_first_ts` register, which is a frozen-contract change awa
 
 **Pending:** Dev A agreement and a PTF replay of the fixture through `features.p4`. P2.4 is not
 done until that replay matches exactly.
+
+## 2026-10-07 - P3.6/P3.7 tree pipeline on synthetic data (Dev B)
+
+`ml/train.py` trains a depth-8, class-weighted tree. CV and the 20% held-out split are both
+grouped by flow, so a flow's checkpoint rows never straddle a split, and the §7.14 path-coverage
+check is applied. `ml/compile_tree.py` turns the tree into §4.5 entries plus the generated
+`tbl_tree_l*` P4 declarations. Those declarations compile under p4c in a scratch v1model harness:
+8 range tables, 11 keys each, sizes 2–256. `common/compiled_tree.classify` simulates the BMv2
+tables and is shared with the 3.9 controller. `ml/verify_equivalence.py` gives 100% agreement on
+held-out rows, 10k random vectors (including field max and values above 2^24) and split-boundary
+probes, and it detects a tampered boundary.
+
+**Finding (§7.9):** sklearn compares `float32(x) <= threshold`, so above 2^24 the switch boundary
+is not `floor(threshold)`. The compiler emits the largest k with `float32(k) <= threshold`
+(for example 16777217, where floor gives 16777216).
+
+DESIGN GAP G19: the generated key paths `meta.tree_node` and `meta.features.<name>` must match
+Dev A's metadata struct. Running on the real corpus waits for P3.3 and Dev C's P3.8.

@@ -23,7 +23,7 @@ test:
 
 # controller/ runs in the Ryu 3.9 venv (docs/ENVIRONMENT.md section 4)
 PY39_TESTS := tests/test_feature_math.py tests/test_compiled_tree.py tests/test_switch_api.py \
-	tests/test_policy.py tests/test_app.py tests/test_contracts.py
+	tests/test_policy.py tests/test_app.py tests/test_contracts.py tests/test_tree_classify.py
 check-py39:
 	$(PYTHON39) -m compileall -q common controller
 	$(PYTHON39) -m pytest $(PY39_TESTS)

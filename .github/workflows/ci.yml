@@ -1,5 +1,6 @@
 # CI gate (tasks P0.2/P0.6, design.md §11): lint + tests + P4 compile.
-# The equivalence gate (ml/verify_equivalence.py) is added to the "test" job in Phase 3 (P3.7).
+# Equivalence gate (P3.7, design 7.9): tests/test_verify_equivalence.py runs in the "test" job;
+# the real-corpus run is `python -m ml.verify_equivalence` where the corpus lives.
 name: CI
 
 on:

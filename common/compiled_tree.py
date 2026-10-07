@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from common.contracts import (
@@ -46,6 +46,16 @@ class CompiledTree:
     model_hash: str
     feature_order: tuple[str, ...]
     entries: tuple[TreeEntry, ...]
+    _by_table_node: Mapping[tuple[str, int], tuple[TreeEntry, ...]] = field(
+        init=False, repr=False, compare=False
+    )
+
+    def __post_init__(self) -> None:
+        index: dict[tuple[str, int], list[TreeEntry]] = {}
+        for entry in self.entries:
+            index.setdefault((entry.table, entry.match_ranges[0][0]), []).append(entry)
+        lookup = {key: tuple(entries) for key, entries in index.items()}
+        object.__setattr__(self, "_by_table_node", lookup)
 
 
 @dataclass(frozen=True)
@@ -71,24 +81,25 @@ def classify(tree: CompiledTree, features: Sequence[int]) -> TreeDecision:
     """
     if len(features) != len(FEATURE_ORDER):
         raise ValueError(f"expected {len(FEATURE_ORDER)} features, got {len(features)}")
-    key = (0, *features)  # walk starts at node 0
+    node = 0  # walk starts at the root
     for level, table in enumerate(TREE_TABLE_NAMES):
         matches = [
             entry
-            for entry in tree.entries
-            if entry.table == table
-            and all(low <= value <= high for value, (low, high) in zip(key, entry.match_ranges))
+            for entry in tree._by_table_node.get((table, node), ())
+            if all(
+                low <= value <= high for value, (low, high) in zip(features, entry.match_ranges[1:])
+            )
         ]
         if len(matches) > 1:
-            raise CompiledTreeError(f"ambiguous match in {table} for node {key[0]}")
+            raise CompiledTreeError(f"ambiguous match in {table} for node {node}")
         if not matches:
-            return TreeDecision(TrafficClass.UNKNOWN, 0, -1, key[0])
+            return TreeDecision(TrafficClass.UNKNOWN, 0, -1, node)
         entry = matches[0]
         if entry.action == TREE_LEAF_ACTION:
             traffic_class, punt_reason = entry.action_params
-            return TreeDecision(TrafficClass(traffic_class), punt_reason, level, key[0])
-        key = (entry.action_params[0], *features)
-    return TreeDecision(TrafficClass.UNKNOWN, 0, -1, key[0])
+            return TreeDecision(TrafficClass(traffic_class), punt_reason, level, node)
+        node = entry.action_params[0]
+    return TreeDecision(TrafficClass.UNKNOWN, 0, -1, node)
 
 
 def load_compiled_tree(path: Path) -> CompiledTree:
