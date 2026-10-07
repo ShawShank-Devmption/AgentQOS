@@ -104,7 +104,7 @@ def check_path_coverage(model: DecisionTreeClassifier) -> None:
         node, covered = pending.pop()
         if tree.children_left[node] == _LEAF:
             if not covered:
-                uncovered.append(node)
+                uncovered.append(int(node))
             continue
         covered = covered or int(tree.feature[node]) in _TIMING_BURST_INDICES
         pending += [(tree.children_left[node], covered), (tree.children_right[node], covered)]
