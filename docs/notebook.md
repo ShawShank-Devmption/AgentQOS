@@ -27,3 +27,15 @@ DESIGN GAP: P2.4 cannot yet define bit-exact feature extraction because the shif
 first-eight size encoding, count-min sketch hashes/seeds, and ALPN numeric encoding are absent from
 the frozen design. Details and the required contract process are recorded in
 `docs/feature_arithmetic_design_gaps.md`.
+
+## 2026-10-07 - P2.4 feature arithmetic proposed (Dev B)
+
+`docs/feature_arithmetic.md` now gives exact fixed-point definitions for all ten features. It
+covers the shift division, the ×100 expansion, the first-8 bitmask (MSB = first packet, ≥128 B),
+crc32+salt hashing, the ALPN enum, ClientHello bounds, and IAT seeding. The Python reference is
+`common/feature_math.py` plus `ml/extract_features.py`. Worked examples at 6/16/64 packets are in
+`tests/fixtures/feature_worked_examples.json`. Contract additions are in `common/contracts.py`,
+including the new `reg_first_ts` register, which is a frozen-contract change awaiting 2 approvals.
+
+**Pending:** Dev A agreement and a PTF replay of the fixture through `features.p4`. P2.4 is not
+done until that replay matches exactly.
