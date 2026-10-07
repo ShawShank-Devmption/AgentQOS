@@ -1,8 +1,9 @@
 """Unit tests for the BMv2 CLI trust boundary."""
 
+import fcntl
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 
@@ -10,6 +11,7 @@ from common.contracts import CLASS_ACTION_TABLE, METER_AGENT_INTERACTIVE, POLICY
 from controller.switch_api import (
     SwitchApi,
     SwitchApiError,
+    _lock_path,
     _parse_register_output,
     meter_set_rates_command,
     register_write_command,
@@ -64,6 +66,7 @@ def test_read_register_invokes_cli_with_validated_command() -> None:
         capture_output=True,
         check=False,
         text=True,
+        pass_fds=ANY,
     )
 
 
@@ -173,3 +176,26 @@ def test_clear_register_and_meter_commands() -> None:
         register_write_command("invented", 0, 1)
     with pytest.raises(ValueError):
         meter_set_rates_command("M_X", 0, [(1.0, 1)])
+
+
+def test_execute_holds_switch_lock_that_the_cli_child_inherits() -> None:
+    # §7.5: a SIGKILLed controller leaves its CLI child running the rest of the batch; the child
+    # keeps the lock so a restarted controller waits instead of interleaving its re-push.
+    held = {}
+
+    def fake_run(*_args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        held["pass_fds"] = kwargs["pass_fds"]
+        with _lock_path(9095).open("a") as other:
+            try:
+                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                held["locked"] = False
+            except BlockingIOError:
+                held["locked"] = True
+        return _cli(BANNER + "RuntimeCmd: ok\nRuntimeCmd: ")
+
+    with patch("controller.switch_api.subprocess.run", side_effect=fake_run):
+        SwitchApi(thrift_port=9095).execute(["cmd_a"])
+    assert held["locked"] is True
+    assert len(held["pass_fds"]) == 1
+    with _lock_path(9095).open("a") as after:
+        fcntl.flock(after, fcntl.LOCK_EX | fcntl.LOCK_NB)  # released once the session ends

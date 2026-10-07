@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import fcntl
 import re
 import subprocess
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Tuple, Union
@@ -53,13 +55,18 @@ class SwitchApi:
             if "\n" in command:
                 raise ValueError(f"CLI commands must be a single line: {command!r}")
         try:
-            result = subprocess.run(
-                [str(self._cli_path), "--thrift-port", str(self._thrift_port)],
-                input="".join(f"{command}\n" for command in commands),
-                capture_output=True,
-                check=False,
-                text=True,
-            )
+            with _lock_path(self._thrift_port).open("a") as lock:
+                # §7.5: the CLI child inherits the locked fd, so a batch orphaned by a killed
+                # controller still holds the switch until it finishes; a restart waits here.
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                result = subprocess.run(
+                    [str(self._cli_path), "--thrift-port", str(self._thrift_port)],
+                    input="".join(f"{command}\n" for command in commands),
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    pass_fds=(lock.fileno(),),
+                )
         except OSError as exc:
             raise SwitchApiError(f"could not execute BMv2 CLI: {self._cli_path}") from exc
         if result.returncode != 0:
@@ -163,6 +170,11 @@ def _format_key(key: MatchKey) -> str:
     if not 0 <= low <= high:
         raise ValueError(f"invalid range key {key}")
     return f"{low}->{high}"
+
+
+def _lock_path(thrift_port: int) -> Path:
+    """Per-switch lockfile serializing CLI sessions across controller processes."""
+    return Path(tempfile.gettempdir()) / f"agent-aware-bmv2-{thrift_port}.lock"
 
 
 def _require_register(name: str) -> None:
