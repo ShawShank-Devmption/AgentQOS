@@ -251,3 +251,7 @@ METER_PRESETS: Final[Mapping[int, Mapping[str, MeterShare]]] = MappingProxyType(
     }
 )
 METER_BURST_BYTES: Final = 15_000
+
+# --- Tree training/compilation (design.md section 8) -----------------------------------------
+TREE_MAX_DEPTH: Final = 8
+LOW_CONFIDENCE_PURITY: Final = 0.85

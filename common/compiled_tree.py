@@ -48,6 +48,49 @@ class CompiledTree:
     entries: tuple[TreeEntry, ...]
 
 
+@dataclass(frozen=True)
+class TreeDecision:
+    """Outcome of walking the tree tables for one feature vector."""
+
+    traffic_class: TrafficClass
+    punt_reason: int
+    leaf_level: int  # table level whose entry produced the leaf; -1 on a miss
+    last_node: int  # tree_node matched at that level
+
+
+def classify(tree: CompiledTree, features: Sequence[int]) -> TreeDecision:
+    """Simulate the tbl_tree_l0..l7 pipeline on one vector, as BMv2 would (design 5.3, 7.9).
+
+    Each level matches `tree_node` exactly and every feature by inclusive range. `tree_next`
+    moves to the next level; `tree_leaf` ends the walk. A miss leaves the class UNKNOWN
+    without a punt, the fail-open default.
+
+    Raises:
+        ValueError: If the vector does not follow FEATURE_ORDER.
+        CompiledTreeError: If more than one entry matches (the compiler emits disjoint ranges).
+    """
+    if len(features) != len(FEATURE_ORDER):
+        raise ValueError(f"expected {len(FEATURE_ORDER)} features, got {len(features)}")
+    key = (0, *features)  # walk starts at node 0
+    for level, table in enumerate(TREE_TABLE_NAMES):
+        matches = [
+            entry
+            for entry in tree.entries
+            if entry.table == table
+            and all(low <= value <= high for value, (low, high) in zip(key, entry.match_ranges))
+        ]
+        if len(matches) > 1:
+            raise CompiledTreeError(f"ambiguous match in {table} for node {key[0]}")
+        if not matches:
+            return TreeDecision(TrafficClass.UNKNOWN, 0, -1, key[0])
+        entry = matches[0]
+        if entry.action == TREE_LEAF_ACTION:
+            traffic_class, punt_reason = entry.action_params
+            return TreeDecision(TrafficClass(traffic_class), punt_reason, level, key[0])
+        key = (entry.action_params[0], *features)
+    return TreeDecision(TrafficClass.UNKNOWN, 0, -1, key[0])
+
+
 def load_compiled_tree(path: Path) -> CompiledTree:
     """Read and validate a compiled-tree file.
 
