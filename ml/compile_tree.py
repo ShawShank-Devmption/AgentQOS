@@ -141,3 +141,46 @@ def _entry(level: int, node: int, action: tuple[str, list[int]], ranges: list | 
         "action_params": params,
         "priority": 1,
     }
+
+
+GENERATED_BEGIN = "// BEGIN GENERATED: ml/compile_tree.py (do not edit)"
+GENERATED_END = "// END GENERATED"
+
+
+def emit_p4_declarations() -> str:
+    """Return the tbl_tree_l* declarations for classifier.p4, derived only from contracts.
+
+    DESIGN GAP G19: key paths `meta.tree_node` / `meta.features.<name>` and the actions
+    `tree_next` / `tree_leaf` must match Dev A's metadata struct and action definitions.
+    """
+    keys = "\n".join(
+        ["            meta.tree_node : exact;"]
+        + [f"            meta.features.{name} : range;" for name in FEATURE_ORDER]
+    )
+    tables = [
+        f"""    table {name} {{
+        key = {{
+{keys}
+        }}
+        actions = {{ {TREE_NEXT_ACTION}; {TREE_LEAF_ACTION}; NoAction; }}
+        default_action = NoAction();
+        size = {2 ** (level + 1)};
+    }}"""
+        for level, name in enumerate(TREE_TABLE_NAMES)
+    ]
+    return "\n\n".join(tables)
+
+
+def splice_generated(p4_source: str, declarations: str) -> str:
+    """Replace the text between the generated-section markers of classifier.p4.
+
+    Raises:
+        ValueError: If the markers are missing or out of order.
+    """
+    begin = p4_source.find(GENERATED_BEGIN)
+    end = p4_source.find(GENERATED_END)
+    if begin < 0 or end < begin:
+        raise ValueError("classifier.p4 lacks the generated-section markers")
+    head = p4_source[: begin + len(GENERATED_BEGIN)]
+    indent = p4_source[p4_source.rfind("\n", 0, end) + 1 : end]
+    return f"{head}\n{declarations}\n{indent}{p4_source[end:]}"
