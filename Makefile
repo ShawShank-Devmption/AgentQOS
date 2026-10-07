@@ -22,9 +22,11 @@ test:
 	$(PYTEST)
 
 # controller/ runs in the Ryu 3.9 venv (docs/ENVIRONMENT.md section 4)
+PY39_TESTS := tests/test_feature_math.py tests/test_compiled_tree.py tests/test_switch_api.py \
+	tests/test_policy.py tests/test_app.py tests/test_contracts.py
 check-py39:
 	$(PYTHON39) -m compileall -q common controller
-	$(PYTHON39) -c "import common.feature_math, controller.app"
+	$(PYTHON39) -m pytest $(PY39_TESTS)
 
 # Compile top-level programs only; the remaining p4src files are include fragments.
 build: $(P4_OUTPUTS)
