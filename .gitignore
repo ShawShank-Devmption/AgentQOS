@@ -20,3 +20,6 @@ results/
 .DS_Store
 .idea/
 .vscode/
+
+# Downloaded datasets and training runs (regenerate with ml.proxy_corpus / ml.train)
+ml/artifacts/

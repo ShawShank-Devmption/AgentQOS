@@ -255,3 +255,4 @@ METER_BURST_BYTES: Final = 15_000
 # --- Tree training/compilation (design.md section 8) -----------------------------------------
 TREE_MAX_DEPTH: Final = 8
 LOW_CONFIDENCE_PURITY: Final = 0.85
+SKETCH_EPOCH_US: Final = 1_000_000  # design.md 6.4: controller flips reg_epoch_flag every 1 s
