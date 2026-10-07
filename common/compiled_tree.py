@@ -10,15 +10,18 @@ from pathlib import Path
 from common.contracts import (
     COMPILED_TREE_ENTRY_FIELDS,
     COMPILED_TREE_FIELDS,
+    CPU_HEADER_FIELDS,
     FEATURE_BIT_WIDTHS,
     FEATURE_ORDER,
     TREE_LEAF_ACTION,
     TREE_NEXT_ACTION,
     TREE_NODE_BITS,
     TREE_TABLE_NAMES,
+    TrafficClass,
 )
 
 _KEY_BIT_WIDTHS = (TREE_NODE_BITS, *FEATURE_BIT_WIDTHS)
+_PUNT_REASON_BITS = dict(CPU_HEADER_FIELDS)["reason"]
 
 
 class CompiledTreeError(ValueError):
@@ -90,11 +93,26 @@ def _parse_entry(raw: object) -> TreeEntry:
     params = fields["action_params"]
     if not isinstance(params, list) or not all(_is_uint(param) for param in params):
         raise CompiledTreeError("action_params must be unsigned integers")
+    _check_action_params(fields["action"], params)
     if not _is_uint(fields["priority"]):
         raise CompiledTreeError("priority must be an unsigned integer")
     return TreeEntry(
         fields["table"], match_ranges, fields["action"], tuple(params), fields["priority"]
     )
+
+
+def _check_action_params(action: str, params: list) -> None:
+    # BMv2 reports a too-wide parameter as "Invalid runtime data"; reject it here instead.
+    if action == TREE_NEXT_ACTION:
+        valid = len(params) == 1 and params[0] < (1 << TREE_NODE_BITS)
+    else:
+        valid = (
+            len(params) == 2
+            and params[0] in {int(c) for c in TrafficClass}
+            and params[1] < (1 << _PUNT_REASON_BITS)
+        )
+    if not valid:
+        raise CompiledTreeError(f"{action} params {params} violate the action signature")
 
 
 def _require_fields(raw: object, expected: Sequence[str], what: str) -> dict:

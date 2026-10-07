@@ -17,7 +17,8 @@ from common.contracts import (
 
 _PROMPT = "RuntimeCmd: "
 # simple_switch_CLI exits 0 even when it rejects a command; these lines are its rejections.
-_REJECTION = re.compile(r"^(?:Error|Invalid \w+ operation|\*\*\* Unknown syntax)", re.MULTILINE)
+# Covers "Invalid table operation (...)", "Invalid match key: ...", "Invalid runtime data: ...".
+_REJECTION = re.compile(r"^(?:Error|Invalid |\*\*\* Unknown syntax)", re.MULTILINE)
 
 
 class SwitchApiError(RuntimeError):

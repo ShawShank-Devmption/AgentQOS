@@ -46,6 +46,11 @@ def test_parses_valid_tree(tmp_path: Path) -> None:
         _tree(_entry(match_ranges=[[0, 0]] * 3)),
         _tree(_entry(action_params=[True, 0])),
         _tree(_entry(priority=-1)),
+        _tree(_entry(action_params=[7, 0])),  # class does not fit bit<2> / TrafficClass
+        _tree(_entry(action_params=[1, 256])),  # punt_reason does not fit bit<8>
+        _tree(_entry(action_params=[1])),  # tree_leaf takes (class, punt_reason)
+        _tree(_entry(action="tree_next", action_params=[1 << 16])),  # node is bit<16>
+        _tree(_entry(action="tree_next", action_params=[1, 2])),  # tree_next takes (node)
     ],
 )
 def test_rejects_schema_violations(raw: dict) -> None:

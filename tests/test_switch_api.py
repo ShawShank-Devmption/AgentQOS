@@ -96,6 +96,8 @@ def test_execute_runs_one_session_and_splits_outputs() -> None:
         "Invalid table operation (DUPLICATE_ENTRY)",
         "Error: Invalid register name",
         "*** Unknown syntax: table_ad x",
+        "Invalid match key: Expected 11 key fields",
+        "Invalid runtime data: Parameter class is too wide",
     ],
 )
 def test_execute_raises_when_cli_rejects_a_command_despite_exit_zero(rejection: str) -> None:
