@@ -6,8 +6,14 @@ import re
 import subprocess
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Tuple, Union
 
-from common.contracts import REGISTER_NAMES
+from common.contracts import (
+    METER_AGENT_BULK,
+    METER_AGENT_INTERACTIVE,
+    REGISTER_NAMES,
+    TABLE_NAMES,
+)
 
 _PROMPT = "RuntimeCmd: "
 # simple_switch_CLI exits 0 even when it rejects a command; these lines are its rejections.
@@ -91,6 +97,65 @@ class SwitchApi:
             command = f"{command} {index}"
         (output,) = self.execute([command])
         return _parse_register_output(register_name, output)
+
+
+MatchKey = Union[int, Tuple[int, int]]  # exact value, or inclusive (low, high) range
+
+
+def table_add_command(
+    table: str,
+    action: str,
+    keys: Sequence[MatchKey],
+    params: Sequence[int],
+    priority: int | None = None,
+) -> str:
+    """Build a `table_add`; range tables need `priority` (BMv2 orders overlapping ranges)."""
+    _require_table(table)
+    words = ["table_add", table, action, *(_format_key(key) for key in keys), "=>"]
+    words += [str(_unsigned(param)) for param in params]
+    if priority is not None:
+        words.append(str(_unsigned(priority)))
+    return " ".join(words)
+
+
+def table_clear_command(table: str) -> str:
+    """Build a `table_clear` for a contract table."""
+    _require_table(table)
+    return f"table_clear {table}"
+
+
+def register_write_command(name: str, index: int, value: int) -> str:
+    """Build a `register_write` for one cell of a contract register."""
+    _require_register(name)
+    return f"register_write {name} {_unsigned(index)} {_unsigned(value)}"
+
+
+def meter_set_rates_command(meter: str, index: int, rates: Sequence[tuple[float, int]]) -> str:
+    """Build `meter_set_rates`: (CIR, CBS) then (PIR, PBS), rates in bytes per microsecond."""
+    if meter not in (METER_AGENT_INTERACTIVE, METER_AGENT_BULK):
+        raise ValueError(f"unknown contract meter: {meter}")
+    bands = " ".join(f"{rate:.6f}:{_unsigned(burst)}" for rate, burst in rates)
+    return f"meter_set_rates {meter} {_unsigned(index)} {bands}"
+
+
+def _require_table(table: str) -> None:
+    if table not in TABLE_NAMES:
+        raise ValueError(f"unknown contract table: {table}")
+
+
+def _unsigned(value: int) -> int:
+    if value < 0:
+        raise ValueError(f"BMv2 values are unsigned, got {value}")
+    return value
+
+
+def _format_key(key: MatchKey) -> str:
+    if isinstance(key, int):
+        return str(_unsigned(key))
+    low, high = key
+    if not 0 <= low <= high:
+        raise ValueError(f"invalid range key {key}")
+    return f"{low}->{high}"
 
 
 def _require_register(name: str) -> None:

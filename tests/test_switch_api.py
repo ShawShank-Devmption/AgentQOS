@@ -6,8 +6,16 @@ from unittest.mock import patch
 
 import pytest
 
-from common.contracts import POLICY_VERSION_REGISTER
-from controller.switch_api import SwitchApi, SwitchApiError, _parse_register_output
+from common.contracts import CLASS_ACTION_TABLE, METER_AGENT_INTERACTIVE, POLICY_VERSION_REGISTER
+from controller.switch_api import (
+    SwitchApi,
+    SwitchApiError,
+    _parse_register_output,
+    meter_set_rates_command,
+    register_write_command,
+    table_add_command,
+    table_clear_command,
+)
 
 BANNER = "Obtaining JSON from switch...\nDone\nControl utility for runtime P4 table manipulation\n"
 
@@ -127,3 +135,39 @@ def test_read_registers_rejects_unknown_name_before_running_cli() -> None:
     ):
         SwitchApi().read_registers(["reg_pkt_count", "invented"])
     run.assert_not_called()
+
+
+def test_table_add_command_exact_and_range_keys_with_priority() -> None:
+    command = table_add_command("tbl_tree_l0", "tree_next", [3, (0, 12), (5, 5)], [7], 1)
+    assert command == "table_add tbl_tree_l0 tree_next 3 0->12 5->5 => 7 1"
+
+
+def test_table_add_command_without_params() -> None:
+    assert table_add_command("tbl_punt_filter", "punt", [1], []) == (
+        "table_add tbl_punt_filter punt 1 =>"
+    )
+
+
+@pytest.mark.parametrize(
+    ("table", "keys", "params"),
+    [
+        ("tbl_invented", [1], []),
+        (CLASS_ACTION_TABLE, [(5, 4)], []),
+        (CLASS_ACTION_TABLE, [1], [-1]),
+    ],
+)
+def test_table_add_command_rejects_invalid_input(table: str, keys: list, params: list) -> None:
+    with pytest.raises(ValueError):
+        table_add_command(table, "set_class_action", keys, params)
+
+
+def test_clear_register_and_meter_commands() -> None:
+    assert table_clear_command(CLASS_ACTION_TABLE) == "table_clear tbl_class_action"
+    assert register_write_command("policy_version", 0, 4) == "register_write policy_version 0 4"
+    assert meter_set_rates_command(METER_AGENT_INTERACTIVE, 1, [(0.5, 15000), (0.625, 15000)]) == (
+        "meter_set_rates M_AI 1 0.500000:15000 0.625000:15000"
+    )
+    with pytest.raises(ValueError):
+        register_write_command("invented", 0, 1)
+    with pytest.raises(ValueError):
+        meter_set_rates_command("M_X", 0, [(1.0, 1)])
