@@ -6,8 +6,10 @@ PYTEST := $(if $(wildcard $(VENV_BIN)/pytest),$(VENV_BIN)/pytest,pytest)
 PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3.11)
 P4_PROGRAMS := $(wildcard p4src/l2fwd.p4 p4src/agent_aware.p4)
 P4_OUTPUTS := $(patsubst p4src/%.p4,build/%.json,$(P4_PROGRAMS))
+P4_FRAGMENTS := $(filter-out $(P4_PROGRAMS),$(wildcard p4src/*.p4))
+P4C_IMAGE := p4lang/p4c@sha256:f15bb88aed8eda8d354da4d02ab7ed1e246f96556d8260100bc98b6ddfe5a71e
 
-.PHONY: lint fmt test build dev-env review-config review-1-host
+.PHONY: lint fmt test build dev-env ptf-parser review-config review-1-host
 
 lint:
 	$(RUFF) check .
@@ -23,9 +25,14 @@ test:
 # Compile top-level programs only; the remaining p4src files are include fragments.
 build: $(P4_OUTPUTS)
 
-build/%.json: p4src/%.p4
+build/%.json: p4src/%.p4 $(P4_FRAGMENTS)
 	@mkdir -p build
 	p4c-bm2-ss --std p4-16 -o $@ $<
+
+# Container-only parser PTF check; full Mininet smoke still requires the Linux VM.
+ptf-parser:
+	docker run --rm --platform linux/amd64 --cap-add NET_ADMIN --cap-add NET_RAW \
+		-v $(CURDIR):/work -w /work $(P4C_IMAGE) sh tests/ptf/run_parser.sh
 
 # verify the pinned toolchain exists (docs/ENVIRONMENT.md §5); run inside the Linux VM
 dev-env:

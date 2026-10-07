@@ -28,11 +28,13 @@ select = [
 # controller/ runs on Python 3.9 (Ryu, see docs/ENVIRONMENT.md §4): allow older syntax there
 [tool.ruff.lint.per-file-ignores]
 "controller/**" = ["UP"]
+"tests/ptf/**" = ["N802"]  # unittest/PTF requires runTest
 
 [tool.ruff.format]
 quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = ["tests/ptf"]
 pythonpath = ["."]
 addopts = "-q"

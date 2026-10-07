@@ -15,6 +15,13 @@ choose floor, ceiling, or nearest power of two and state whether `pkt_count` inc
 must state the shift/add expansion for multiplication by 100, the denominator approximation, the
 zero-downstream result, and the saturation point.
 
+`flow_age_ms` has the same issue: exact microseconds-to-milliseconds conversion divides by 1000,
+which violates the shift-only P4 rule. The team must choose and document a fixed-point approximation
+or explicitly authorize an exact target-supported operation, then use that choice in both P4 and Python.
+It also needs the flow's first timestamp, while the frozen register list contains only `reg_last_ts`;
+once that register is updated, the age cannot be reconstructed. A storage choice therefore needs a
+two-approval frozen-contract amendment.
+
 ## DESIGN GAP: first-eight size signature
 
 `first8_size_bucket` is an eight-bit coarse signature, but the encoding is unspecified. The design
@@ -33,6 +40,12 @@ cannot reproduce P4 collision behavior for `fanout_new_flows`.
 The ALPN classes are named `none`, `h1`, `h2`, and `other`, but their numeric encodings are not
 assigned. The bounded TLS parser also needs the exact behavior for malformed/truncated extension
 lengths before `tls_ext_count` and `tls_alpn_class` can be mirrored safely.
+Design section 5.1 also requests an SNI-length bucket, but does not define its bucket boundaries or
+packed `reg_proto_meta` layout. Those values should be reviewed with the ALPN encoding before the
+controller or Python extractor depends on them.
+The P2.1 parser currently uses a provisional, parser-local SNI bucket (0 absent, 1 for 1–32 bytes,
+2 for 33–128, 3 for longer names) and one-hot ALPN flags. These are tested parser outputs, not an
+approved serialized register or numeric feature encoding.
 
 ## Proposed decision process
 

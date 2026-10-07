@@ -31,14 +31,18 @@ jobs:
 
   p4-compile:
     runs-on: ubuntu-22.04
-    container: p4lang/p4c:latest   # TODO(P0.4): pin to the digest matching the VM toolchain
+    container: p4lang/p4c@sha256:f15bb88aed8eda8d354da4d02ab7ed1e246f96556d8260100bc98b6ddfe5a71e
     steps:
       - uses: actions/checkout@v4
-      - name: Compile all P4 programs
+      - name: Compile top-level P4 programs
         run: |
-          if ls p4src/*.p4 >/dev/null 2>&1; then
-            for f in p4src/*.p4; do p4c-bm2-ss --std p4-16 -o /dev/null "$f"; done
-            echo "p4 compile OK"
-          else
-            echo "no p4src/*.p4 yet — skipping"
+          p4c-bm2-ss --std p4-16 -o /dev/null p4src/l2fwd.p4
+          if [ -f p4src/agent_aware.p4 ]; then
+            p4c-bm2-ss --std p4-16 -o /dev/null p4src/agent_aware.p4
           fi
+
+  ptf-parser:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: make ptf-parser
