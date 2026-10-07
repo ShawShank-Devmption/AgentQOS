@@ -1,4 +1,4 @@
-"""M1 controller probe for the BMv2 policy-version register."""
+"""Controller entrypoint: startup policy push (design.md section 6.1, task P3.2)."""
 
 from __future__ import annotations
 
@@ -7,37 +7,37 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 
-from common.contracts import POLICY_VERSION_REGISTER
+from common.compiled_tree import load_compiled_tree
+from controller.policy import push_policy
 from controller.switch_api import SwitchApi, SwitchApiError
 
 LOGGER = logging.getLogger(__name__)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Read and log the switch policy version for the M1 connectivity check.
+    """Push the full policy to BMv2 and report the resulting policy version.
 
     Args:
         argv: Optional command-line arguments for tests or programmatic use.
 
     Returns:
-        Zero when the register is read, otherwise one.
+        Zero when the policy is installed, otherwise one.
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli-path", type=Path, default=Path("simple_switch_CLI"))
     parser.add_argument("--thrift-port", type=int, default=9090)
+    parser.add_argument("--link-mbps", type=int, required=True)
+    parser.add_argument("--compiled-tree", type=Path, default=None)
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     try:
-        policy_version = SwitchApi(args.cli_path, args.thrift_port).read_register(
-            POLICY_VERSION_REGISTER,
-            index=0,
-        )
+        tree = load_compiled_tree(args.compiled_tree) if args.compiled_tree else None
+        version = push_policy(SwitchApi(args.cli_path, args.thrift_port), args.link_mbps, tree)
     except (SwitchApiError, ValueError) as exc:
-        LOGGER.error("M1 controller probe failed: %s", exc)
+        LOGGER.error("controller startup failed: %s", exc)
         return 1
-
-    LOGGER.info("connected to BMv2; policy version=%d", policy_version[0])
+    LOGGER.info("controller ready; policy version=%d", version)
     return 0
 
 

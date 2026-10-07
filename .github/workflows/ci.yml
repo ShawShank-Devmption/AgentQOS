@@ -29,6 +29,15 @@ jobs:
       - run: pip install pytest scikit-learn pandas pyyaml scapy
       - run: pytest
 
+  controller-py39:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - run: make check-py39 PYTHON39=python
+
   p4-compile:
     runs-on: ubuntu-22.04
     container: p4lang/p4c:latest   # TODO(P0.4): pin to the digest matching the VM toolchain

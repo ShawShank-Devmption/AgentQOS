@@ -4,10 +4,11 @@ VENV_BIN := $(CURDIR)/.venv/bin
 RUFF := $(if $(wildcard $(VENV_BIN)/ruff),$(VENV_BIN)/ruff,ruff)
 PYTEST := $(if $(wildcard $(VENV_BIN)/pytest),$(VENV_BIN)/pytest,pytest)
 PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3.11)
+PYTHON39 ?= python3.9
 P4_PROGRAMS := $(wildcard p4src/l2fwd.p4 p4src/agent_aware.p4)
 P4_OUTPUTS := $(patsubst p4src/%.p4,build/%.json,$(P4_PROGRAMS))
 
-.PHONY: lint fmt test build dev-env review-config review-1-host
+.PHONY: lint fmt test build dev-env review-config review-1-host check-py39
 
 lint:
 	$(RUFF) check .
@@ -19,6 +20,11 @@ fmt:
 
 test:
 	$(PYTEST)
+
+# controller/ runs in the Ryu 3.9 venv (docs/ENVIRONMENT.md section 4)
+check-py39:
+	$(PYTHON39) -m compileall -q common controller
+	$(PYTHON39) -c "import common.feature_math, controller.app"
 
 # Compile top-level programs only; the remaining p4src files are include fragments.
 build: $(P4_OUTPUTS)
