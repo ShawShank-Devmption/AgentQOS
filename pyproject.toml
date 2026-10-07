@@ -27,7 +27,8 @@ select = [
 ]
 # controller/ runs on Python 3.9 (Ryu, see docs/ENVIRONMENT.md §4): allow older syntax there
 [tool.ruff.lint.per-file-ignores]
-"controller/**" = ["UP"]
+"controller/**" = ["UP", "B905"]  # Python 3.9 has no zip(strict=)
+"common/**" = ["UP", "B905"]  # imported by the 3.9 controller
 
 [tool.ruff.format]
 quote-style = "double"

@@ -150,8 +150,8 @@ that file is the single machine-readable source of truth; this section is its do
 - **Tables (names frozen):** `tbl_tree_l0` … `tbl_tree_l7` (classifier levels),
   `tbl_flow_override` (exact 5-tuple → class, controller-installed),
   `tbl_class_action` (class → DSCP/queue/meter), `tbl_punt_filter`.
-- **Registers (names frozen):** `reg_flow_key` (32b tag), `reg_last_ts`, `reg_iat_ewma`,
-  `reg_iat_var_ewma`, `reg_pkt_count`, `reg_bytes_up`, `reg_bytes_down`, `reg_first_sizes`
+- **Registers (names frozen):** `reg_flow_key` (32b tag), `reg_last_ts`, `reg_first_ts` (claim
+  time, for `flow_age_ms`; added by P2.4), `reg_iat_ewma`, `reg_iat_var_ewma`, `reg_pkt_count`, `reg_bytes_up`, `reg_bytes_down`, `reg_first_sizes`
   (N=8 slots/flow), `reg_flow_class`, `reg_cm_sketch_{0,1}` (two epochs), `reg_epoch_flag`,
   `reg_congestion_flag`, `reg_proto_meta` (packed TLS-CH fields).
 - **Flow slot count:** `FLOW_SLOTS = 65536` (2^16, hash-indexed). Sketch: 4 rows × 4096 cols.
@@ -181,6 +181,7 @@ All arithmetic is fixed-point integer (shifts, no division except by powers of 2
 pipeline must be trained on **exactly these integerized features** extracted identically from
 pcaps (`ml/extract_features.py` reimplements the P4 arithmetic bit-for-bit — this is a hard
 requirement; see race/edge §7.9).
+Exact fixed-point definitions: `docs/feature_arithmetic.md` (P2.4).
 
 ### 4.4 Corpus label format
 `labels.csv`: `flow_id,src_ip,dst_ip,proto,src_port,dst_port,label,source_framework,pcap_file`
