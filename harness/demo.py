@@ -208,18 +208,6 @@ def write_storm_plan(plan: StormPlan, output_path: Path) -> None:
     )
 
 
-def require_live_executor() -> None:
-    """Fail until the persistent Person 1/2 data-plane orchestrator exists.
-
-    Raises:
-        RuntimeError: Always, while the required P4/controller pipeline is absent.
-    """
-    raise RuntimeError(
-        "persistent experiment execution is unavailable: the Person 1/2 "
-        "agent-aware P4 data plane and controller pipeline are not present"
-    )
-
-
 def execute_storm(config: StormConfig, p4_json: Path) -> None:
     """Execute one storm through the persistent Linux topology.
 
@@ -227,10 +215,11 @@ def execute_storm(config: StormConfig, p4_json: Path) -> None:
         config: Validated storm coordinates.
         p4_json: Compiled switch program selected for this system.
     """
-    del config
     if not p4_json.is_file():
         raise FileNotFoundError(p4_json)
-    require_live_executor()
+    from harness.runtime import run_storm
+
+    run_storm(config, p4_json, build_storm_plan(config))
 
 
 def main(argv: Sequence[str] | None = None) -> int:

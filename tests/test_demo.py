@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from harness.demo import StormConfig, build_storm_plan, main, write_storm_plan
+from harness.demo import StormConfig, build_storm_plan, execute_storm, main, write_storm_plan
 
 
 def _config(tmp_path: Path, system: str = "ours", **overrides: object) -> StormConfig:
@@ -99,6 +99,28 @@ def test_execute_mode_invokes_runtime_with_explicit_p4_artifact(
     assert main([*_arguments(config, "--execute"), "--p4-json", str(p4_json)]) == 0
     assert calls == [(config, p4_json)]
     assert (config.output_dir / "storm_plan.json").is_file()
+
+
+def test_execute_storm_delegates_to_persistent_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    p4_json = tmp_path / "l2fwd.json"
+    p4_json.write_text("{}", encoding="utf-8")
+    calls: list[tuple[StormConfig, Path, object]] = []
+    monkeypatch.setattr(
+        "harness.runtime.run_storm",
+        lambda runtime_config, runtime_p4_json, plan: calls.append(
+            (runtime_config, runtime_p4_json, plan)
+        ),
+    )
+
+    execute_storm(config, p4_json)
+
+    assert len(calls) == 1
+    assert calls[0][:2] == (config, p4_json)
+    assert calls[0][2] == build_storm_plan(config)
 
 
 def test_plan_only_mode_is_explicit(tmp_path: Path) -> None:
