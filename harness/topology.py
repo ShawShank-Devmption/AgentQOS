@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import time
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -91,6 +92,39 @@ class SmokeResult:
 
     packet_loss_pct: float
     bits_per_second: float
+
+
+class TopologySession(AbstractContextManager[Any]):
+    """Own one programmed Mininet/BMv2 topology lifecycle."""
+
+    def __init__(self, config: SwitchLaunchConfig) -> None:
+        self._config = config
+        self._network: Any | None = None
+
+    def __enter__(self) -> Any:
+        _validate_linux_runtime()
+        network: Any | None = None
+        try:
+            network = _create_network(self._config)
+            self._network = network
+            network.build()
+            network.start()
+            SwitchApi(self._config.cli_path, self._config.thrift_port).run_commands(
+                forwarding_commands()
+            )
+            return network
+        except Exception:
+            if network is not None:
+                network.stop()
+            self._network = None
+            raise
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        del exc_type, exc_value, traceback
+        network = self._network
+        self._network = None
+        if network is not None:
+            network.stop()
 
 
 def topology_manifest(link_mbps: int = 20) -> dict[str, Any]:
@@ -190,13 +224,7 @@ def run_smoke(config: SwitchLaunchConfig) -> SmokeResult:
     Raises:
         RuntimeError: If the Linux runtime or a connectivity check fails.
     """
-    _validate_linux_runtime()
-    network: Any | None = None
-    try:
-        network = _create_network(config)
-        network.build()
-        network.start()
-        SwitchApi(config.cli_path, config.thrift_port).run_commands(forwarding_commands())
+    with TopologySession(config) as network:
         packet_loss = float(network.pingAll(timeout="2"))
         if packet_loss != 0.0:
             raise RuntimeError(f"M1 pingall failed with {packet_loss:.1f}% packet loss")
@@ -212,9 +240,6 @@ def run_smoke(config: SwitchLaunchConfig) -> SmokeResult:
         bits_per_second = _parse_iperf_throughput(raw_result)
         LOGGER.info("M1 smoke passed: %.0f bits/s", bits_per_second)
         return SmokeResult(packet_loss_pct=packet_loss, bits_per_second=bits_per_second)
-    finally:
-        if network is not None:
-            network.stop()
 
 
 def main(argv: Sequence[str] | None = None) -> int:

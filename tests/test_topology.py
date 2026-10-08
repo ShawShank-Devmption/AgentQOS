@@ -165,6 +165,52 @@ class _FailingNetwork:
         self.stopped = True
 
 
+class _RecordingNetwork:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    def build(self) -> None:
+        self._events.append("build")
+
+    def start(self) -> None:
+        self._events.append("start")
+
+    def stop(self) -> None:
+        self._events.append("stop")
+
+
+class _RecordingSwitchApi:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    def run_commands(self, commands: tuple[str, ...]) -> str:
+        assert commands == forwarding_commands()
+        self._events.append("program")
+        return ""
+
+
+def test_topology_session_builds_programs_and_always_stops(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p4_json = tmp_path / "l2fwd.json"
+    p4_json.write_text("{}", encoding="utf-8")
+    events: list[str] = []
+    network = _RecordingNetwork(events)
+    monkeypatch.setattr("harness.topology._validate_linux_runtime", lambda: None)
+    monkeypatch.setattr("harness.topology._create_network", lambda config: network)
+    monkeypatch.setattr(
+        "harness.topology.SwitchApi",
+        lambda cli_path, thrift_port: _RecordingSwitchApi(events),
+    )
+
+    with topology.TopologySession(SwitchLaunchConfig(p4_json=p4_json)) as active:
+        assert active is network
+        assert events == ["build", "start", "program"]
+
+    assert events == ["build", "start", "program", "stop"]
+
+
 def test_run_smoke_stops_partially_started_network(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
