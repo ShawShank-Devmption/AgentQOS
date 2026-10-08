@@ -87,6 +87,20 @@ def test_confidence_interval_uses_student_t_for_five_seeds() -> None:
     assert interval.high == pytest.approx(4.9632432)
 
 
+def test_confidence_interval_requires_multiple_seeds() -> None:
+    with pytest.raises(MetricInputError, match="at least two"):
+        confidence_interval_95((1.0,))
+
+
+def test_confidence_interval_uses_student_t_above_table_range() -> None:
+    samples = tuple(float(value) for value in range(1, 33))
+    interval = confidence_interval_95(samples)
+    expected_margin = 2.039513446 * 9.38083151964686 / (32**0.5)
+
+    assert interval.low == pytest.approx(16.5 - expected_margin, rel=1e-6)
+    assert interval.high == pytest.approx(16.5 + expected_margin, rel=1e-6)
+
+
 def test_anchor_checks_report_reduction_and_overhead() -> None:
     result = evaluate_anchors(
         ours_p99_ms=60.0,

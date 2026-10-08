@@ -221,17 +221,39 @@ def confidence_interval_95(samples: Sequence[float]) -> ConfidenceInterval:
         MetricInputError: If samples are empty or non-finite.
     """
     values = _validated_samples(samples, "confidence-interval sample", non_negative=False)
+    if len(values) < 2:
+        raise MetricInputError("confidence intervals require at least two seed samples")
     mean = statistics.fmean(values)
-    if len(values) == 1:
-        return ConfidenceInterval(1, mean, mean, mean)
     degrees_of_freedom = len(values) - 1
-    critical = (
-        _T_CRITICAL_95[degrees_of_freedom]
-        if degrees_of_freedom < len(_T_CRITICAL_95)
-        else 1.959963985
-    )
+    critical = _student_t_critical_95(degrees_of_freedom)
     margin = critical * statistics.stdev(values) / math.sqrt(len(values))
     return ConfidenceInterval(len(values), mean, mean - margin, mean + margin)
+
+
+def _student_t_critical_95(degrees_of_freedom: int) -> float:
+    if degrees_of_freedom < len(_T_CRITICAL_95):
+        return _T_CRITICAL_95[degrees_of_freedom]
+
+    # Cornish-Fisher expansion of the two-sided 95% Student-t quantile.
+    normal_quantile = 1.959963984540054
+    reciprocal_df = 1 / degrees_of_freedom
+    first = (normal_quantile**3 + normal_quantile) * reciprocal_df / 4
+    second = (
+        (5 * normal_quantile**5 + 16 * normal_quantile**3 + 3 * normal_quantile)
+        * reciprocal_df**2
+        / 96
+    )
+    third = (
+        (
+            3 * normal_quantile**7
+            + 19 * normal_quantile**5
+            + 17 * normal_quantile**3
+            - 15 * normal_quantile
+        )
+        * reciprocal_df**3
+        / 384
+    )
+    return normal_quantile + first + second + third
 
 
 def evaluate_anchors(
