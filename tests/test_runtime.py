@@ -196,6 +196,14 @@ def test_network_storm_runs_capture_services_human_and_all_agents(tmp_path: Path
     plan = build_storm_plan(config)
     events: list[str] = []
     network = _Network(events)
+    local_commands: list[tuple[str, ...]] = []
+    local_handles: list[Any] = []
+
+    def start_local(command: tuple[str, ...], log_path: Path) -> tuple[_Process, object]:
+        local_commands.append(command)
+        handle = log_path.open("w", encoding="utf-8")
+        local_handles.append(handle)
+        return _Process(running=True), handle
 
     runtime.run_network_storm(
         network,
@@ -206,6 +214,7 @@ def test_network_storm_runs_capture_services_human_and_all_agents(tmp_path: Path
             f"ready:{host.name}:{address}:{port}"
         ),
         artifact_collector=lambda runtime_config: events.append("collect"),
+        local_process_starter=start_local,
     )
 
     target_commands = network.get("h_target").commands
@@ -213,7 +222,8 @@ def test_network_storm_runs_capture_services_human_and_all_agents(tmp_path: Path
     agent_commands = [
         command for index in range(1, 5) for command in network.get(f"h_agent{index}").commands
     ]
-    assert any(command[0] == "tshark" for command in target_commands)
+    assert sum(command[0] == "tshark" for command in target_commands) == 2
+    assert any("tcp.analysis.ack_rtt" in command for command in target_commands)
     assert any("harness.mcp_target.server" in command for command in target_commands)
     assert any(command[:2] == ("iperf3", "-s") for command in target_commands)
     assert any(command[:2] == ("iperf3", "-c") for command in human_commands)
@@ -224,6 +234,11 @@ def test_network_storm_runs_capture_services_human_and_all_agents(tmp_path: Path
         "harness.agents.claude_mcp",
     ]
     assert "ready:h_agent1:10.0.0.100:8080" in events
+    assert [command[2] for command in local_commands] == [
+        "dashboard.producer",
+        "dashboard.server",
+    ]
+    assert all(handle.closed for handle in local_handles)
     assert events[-2:] == ["collect", "s1:tc:run"]
     assert (config.output_dir / "orchestration.jsonl").is_file()
 
@@ -239,6 +254,10 @@ def test_network_storm_cleans_up_when_an_agent_fails(tmp_path: Path) -> None:
     )
     collected: list[str] = []
 
+    def start_local(command: tuple[str, ...], log_path: Path) -> tuple[_Process, object]:
+        del command
+        return _Process(running=True), log_path.open("w", encoding="utf-8")
+
     with pytest.raises(RuntimeError, match="autogen exited with status 1"):
         runtime.run_network_storm(
             network,
@@ -247,6 +266,7 @@ def test_network_storm_cleans_up_when_an_agent_fails(tmp_path: Path) -> None:
             validate_runtime=lambda system: None,
             port_waiter=lambda host, address, port, process: None,
             artifact_collector=lambda runtime_config: collected.append("collect"),
+            local_process_starter=start_local,
         )
 
     target = network.get("h_target")

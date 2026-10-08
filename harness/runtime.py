@@ -41,6 +41,7 @@ NetworkRunner = Callable[[Any, "StormConfig", "StormPlan"], None]
 RuntimeValidator = Callable[[str], None]
 PortWaiter = Callable[[Any, str, int, Any], None]
 ArtifactCollector = Callable[["StormConfig"], None]
+LocalProcessStarter = Callable[[tuple[str, ...], Path], tuple[Any, Any]]
 LOGGER = logging.getLogger(__name__)
 AGENT_HOST_NAMES = ("h_agent1", "h_agent2", "h_agent3", "h_agent4")
 
@@ -160,6 +161,7 @@ def run_network_storm(
     artifact_collector: ArtifactCollector = lambda runtime_config: _collect_artifacts(
         runtime_config
     ),
+    local_process_starter: LocalProcessStarter | None = None,
 ) -> None:
     """Run capture, target, human flow, and four agents inside an active topology."""
     validate_runtime(config.system)
@@ -174,6 +176,9 @@ def run_network_storm(
     managed_processes: list[Any] = []
     log_handles: list[Any] = []
     pcap_path = config.output_dir / "traffic.pcap"
+    telemetry_path = config.output_dir / "packet_telemetry.tsv"
+    snapshot_path = config.output_dir / "live_metrics.json"
+    start_local = local_process_starter or _start_local_logged_process
 
     with BaselineSession(network, baseline, config.output_dir):
         try:
@@ -190,6 +195,39 @@ def run_network_storm(
             )
             managed_processes.append(capture)
             log_handles.append(capture_log)
+
+            telemetry, telemetry_handles = _start_packet_telemetry(
+                target,
+                f"{TARGET_NAME}-eth0",
+                telemetry_path,
+                config.output_dir / "packet_telemetry.log",
+            )
+            managed_processes.append(telemetry)
+            log_handles.extend(telemetry_handles)
+
+            producer, producer_log = start_local(
+                (
+                    sys.executable,
+                    "-m",
+                    "dashboard.producer",
+                    "--telemetry",
+                    str(telemetry_path),
+                    "--snapshot",
+                    str(snapshot_path),
+                ),
+                config.output_dir / "dashboard_producer.log",
+            )
+            managed_processes.append(producer)
+            log_handles.append(producer_log)
+            _ensure_started(producer, "dashboard metric producer")
+
+            dashboard, dashboard_log = start_local(
+                service_phase.commands[1],
+                config.output_dir / "dashboard_server.log",
+            )
+            managed_processes.append(dashboard)
+            log_handles.append(dashboard_log)
+            _ensure_started(dashboard, "dashboard server")
 
             target_process, target_log = _start_logged_process(
                 target,
@@ -279,6 +317,79 @@ def _start_logged_process(host: Any, command: tuple[str, ...], log_path: Path) -
         log_handle.close()
         raise
     return process, log_handle
+
+
+def _start_packet_telemetry(
+    host: Any,
+    interface: str,
+    telemetry_path: Path,
+    error_path: Path,
+) -> tuple[Any, tuple[Any, Any]]:
+    telemetry_path.parent.mkdir(parents=True, exist_ok=True)
+    telemetry_handle = telemetry_path.open("w", encoding="utf-8")
+    error_handle = error_path.open("w", encoding="utf-8")
+    command = (
+        "tshark",
+        "-l",
+        "-i",
+        interface,
+        "-Y",
+        "ip",
+        "-T",
+        "fields",
+        "-E",
+        "separator=/t",
+        "-E",
+        "occurrence=f",
+        "-e",
+        "frame.time_epoch",
+        "-e",
+        "ip.src",
+        "-e",
+        "ip.dst",
+        "-e",
+        "frame.len",
+        "-e",
+        "tcp.analysis.ack_rtt",
+    )
+    try:
+        process = host.popen(
+            command,
+            stdout=telemetry_handle,
+            stderr=error_handle,
+            text=True,
+        )
+    except OSError:
+        telemetry_handle.close()
+        error_handle.close()
+        raise
+    return process, (telemetry_handle, error_handle)
+
+
+def _start_local_logged_process(
+    command: tuple[str, ...],
+    log_path: Path,
+) -> tuple[subprocess.Popen[str], Any]:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_handle = log_path.open("w", encoding="utf-8")
+    try:
+        process = subprocess.Popen(  # noqa: S603
+            command,
+            stdout=log_handle,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    except OSError:
+        log_handle.close()
+        raise
+    return process, log_handle
+
+
+def _ensure_started(process: Any, name: str) -> None:
+    time.sleep(0.05)
+    return_code = process.poll()
+    if return_code is not None:
+        raise RuntimeError(f"{name} exited during startup with status {return_code}")
 
 
 def _wait_success(process: Any, name: str, timeout_s: int) -> None:
