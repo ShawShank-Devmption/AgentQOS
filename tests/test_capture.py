@@ -163,6 +163,46 @@ def test_capture_windows_round_trip_through_jsonl(tmp_path: Path) -> None:
     assert read_capture_windows(log_path) == windows
 
 
+def test_capture_window_is_appended_with_one_write_for_process_safety() -> None:
+    writes: list[str] = []
+
+    class Parent:
+        def mkdir(self, *, parents: bool, exist_ok: bool) -> None:
+            assert parents and exist_ok
+
+    class Output:
+        parent = Parent()
+
+        def open(self, mode: str, encoding: str) -> object:
+            assert mode == "a"
+            assert encoding == "utf-8"
+
+            class Handle:
+                def __enter__(self) -> object:
+                    return self
+
+                def __exit__(self, *args: object) -> None:
+                    del args
+
+                def write(self, value: str) -> None:
+                    writes.append(value)
+
+            return Handle()
+
+    window = CaptureWindow(
+        IPv4Address("10.0.0.1"),
+        Decimal("100"),
+        Decimal("101"),
+        TrafficClass.AGENT_INTERACTIVE,
+        "browser-use",
+    )
+
+    write_capture_window(window, Output())  # type: ignore[arg-type]
+
+    assert len(writes) == 1
+    assert writes[0].endswith("\n")
+
+
 def test_malformed_orchestration_log_is_rejected(tmp_path: Path) -> None:
     log_path = tmp_path / "orchestration.jsonl"
     log_path.write_text('{"source_ip": "not-an-ip"}\n', encoding="utf-8")

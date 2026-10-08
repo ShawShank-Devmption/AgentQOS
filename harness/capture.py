@@ -165,8 +165,7 @@ def write_capture_window(window: CaptureWindow, output_path: Path) -> None:
     }
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("a", encoding="utf-8") as output_file:
-        output_file.write(json.dumps(entry, sort_keys=True))
-        output_file.write("\n")
+        output_file.write(json.dumps(entry, sort_keys=True) + "\n")
 
 
 def read_capture_windows(log_path: Path) -> tuple[CaptureWindow, ...]:
