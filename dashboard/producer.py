@@ -8,6 +8,7 @@ import logging
 import math
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from ipaddress import IPv4Address
 from pathlib import Path
@@ -26,6 +27,17 @@ class LiveMetricError(ValueError):
     """Raised when live packet telemetry violates its expected schema."""
 
 
+@dataclass(frozen=True)
+class PacketTelemetry:
+    """One packet row exported by the live tshark process."""
+
+    timestamp_s: float
+    source_ip: str
+    destination_ip: str
+    frame_bytes: int
+    ack_rtt_s: float | None
+
+
 def build_snapshot(
     telemetry_path: Path,
     *,
@@ -42,26 +54,48 @@ def build_snapshot(
     Returns:
         A dashboard snapshot containing every frozen training class.
     """
+    return build_snapshot_from_packets(
+        read_telemetry(telemetry_path),
+        now_s=now_s,
+        window_s=window_s,
+    )
+
+
+def build_snapshot_from_packets(
+    packets: Sequence[PacketTelemetry],
+    *,
+    now_s: float,
+    window_s: float = DEFAULT_WINDOW_S,
+) -> dict[str, object]:
+    """Aggregate already-parsed packet telemetry into the dashboard schema.
+
+    Args:
+        packets: Validated packet telemetry in capture order.
+        now_s: Inclusive end of the aggregation window as Unix seconds.
+        window_s: Positive sliding-window duration in seconds.
+
+    Returns:
+        A dashboard snapshot containing every frozen training class.
+    """
     if not math.isfinite(now_s) or now_s < 0:
         raise ValueError("now_s must be finite and non-negative")
     if not math.isfinite(window_s) or window_s <= 0:
         raise ValueError("window_s must be finite and positive")
-    rows = _read_telemetry(telemetry_path)
     class_ips = _class_ip_map()
     cutoff_s = now_s - window_s
     byte_counts = {traffic_class: 0 for traffic_class in TRAINING_LABELS}
     latencies_ms: dict[TrafficClass, list[float]] = {
         traffic_class: [] for traffic_class in TRAINING_LABELS
     }
-    for timestamp_s, source_ip, destination_ip, frame_bytes, ack_rtt_s in rows:
-        if timestamp_s < cutoff_s or timestamp_s > now_s:
+    for packet in packets:
+        if packet.timestamp_s < cutoff_s or packet.timestamp_s > now_s:
             continue
-        traffic_class = class_ips.get(source_ip) or class_ips.get(destination_ip)
+        traffic_class = class_ips.get(packet.source_ip) or class_ips.get(packet.destination_ip)
         if traffic_class is None:
             continue
-        byte_counts[traffic_class] += frame_bytes
-        if ack_rtt_s is not None:
-            latencies_ms[traffic_class].append(ack_rtt_s * 1_000)
+        byte_counts[traffic_class] += packet.frame_bytes
+        if packet.ack_rtt_s is not None:
+            latencies_ms[traffic_class].append(packet.ack_rtt_s * 1_000)
 
     classes: dict[str, dict[str, float]] = {}
     for traffic_class in TRAINING_LABELS:
@@ -143,9 +177,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _read_telemetry(
-    telemetry_path: Path,
-) -> tuple[tuple[float, str, str, int, float | None], ...]:
+def read_telemetry(telemetry_path: Path) -> tuple[PacketTelemetry, ...]:
+    """Read complete tshark telemetry rows while tolerating a partial final row.
+
+    Args:
+        telemetry_path: Tab-separated packet telemetry path.
+
+    Returns:
+        Validated packet rows in capture order.
+    """
     if not telemetry_path.is_file():
         raise FileNotFoundError(telemetry_path)
     try:
@@ -155,7 +195,7 @@ def _read_telemetry(
     lines = raw.splitlines()
     if raw and not raw.endswith(("\n", "\r")):
         lines = lines[:-1]
-    rows: list[tuple[float, str, str, int, float | None]] = []
+    rows: list[PacketTelemetry] = []
     for line_number, line in enumerate(lines, start=1):
         if not line:
             continue
@@ -177,7 +217,7 @@ def _read_telemetry(
             raise LiveMetricError(
                 f"invalid packet telemetry on line {line_number}: {telemetry_path}"
             ) from exc
-        rows.append((timestamp_s, source_ip, destination_ip, frame_bytes, ack_rtt_s))
+        rows.append(PacketTelemetry(timestamp_s, source_ip, destination_ip, frame_bytes, ack_rtt_s))
     return tuple(rows)
 
 
