@@ -133,18 +133,43 @@ def test_each_baseline_has_setup_and_teardown_commands(system: str) -> None:
 def test_diffserv_teardown_removes_the_installed_marking_rule() -> None:
     plan = baseline_plan("diffserv", link_mbps=20)
 
-    assert plan.teardown_commands[0] == (
-        "iptables",
-        "-t",
-        "mangle",
-        "-D",
-        "POSTROUTING",
-        "-p",
-        "tcp",
-        "--dport",
-        "8080",
-        "-j",
-        "DSCP",
-        "--set-dscp",
-        "18",
+    assert plan.teardown_commands == (("tc", "qdisc", "del", "dev", "s1-eth7", "root"),)
+
+
+@pytest.mark.parametrize("system", ["fifo", "diffserv", "fairq"])
+def test_queue_baselines_preserve_the_configured_bottleneck(system: str) -> None:
+    plan = baseline_plan(system, link_mbps=35)
+    arguments = tuple(argument for command in plan.setup_commands for argument in command)
+
+    assert "35mbit" in arguments
+
+
+def test_diffserv_marks_and_demotes_mcp_on_switch_egress() -> None:
+    plan = baseline_plan("diffserv", link_mbps=20)
+    arguments = tuple(argument for command in plan.setup_commands for argument in command)
+
+    assert "iptables" not in arguments
+    assert "dport" in arguments
+    assert "8080" in arguments
+    assert "dsfield" in arguments
+    assert "0x48" in arguments
+    assert "10:3" in arguments
+
+
+def test_fairq_uses_a_flow_hash_queue_below_the_shaper() -> None:
+    plan = baseline_plan("fairq", link_mbps=20)
+
+    assert plan.setup_commands[-1] == (
+        "tc",
+        "qdisc",
+        "replace",
+        "dev",
+        "s1-eth7",
+        "parent",
+        "1:10",
+        "handle",
+        "10:",
+        "sfq",
+        "perturb",
+        "10",
     )
