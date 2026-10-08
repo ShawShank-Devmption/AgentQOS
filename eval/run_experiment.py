@@ -29,6 +29,7 @@ from common.contracts import (
     MAX_LINK_MBPS,
     MIN_AGENT_SHARE_PCT,
     MIN_LINK_MBPS,
+    TRAINING_LABELS,
 )
 from eval.baselines.base import baseline_plan
 
@@ -289,6 +290,7 @@ def execute_run(
     runner = command_runner or _run_command
     try:
         runner(workload)
+        summary_digest = _validate_run_summary(run)
     except Exception as exc:
         # §7.19: preserve the failed append-only cell and diagnostic; never reuse it silently.
         manifest["status"] = "failed"
@@ -297,6 +299,7 @@ def execute_run(
         _write_manifest(manifest_path, manifest)
         raise
     manifest["status"] = "complete"
+    manifest["run_summary_sha256"] = summary_digest
     manifest["finished_at"] = datetime.now(UTC).isoformat()
     _write_manifest(manifest_path, manifest)
 
@@ -396,6 +399,7 @@ def _run_values(run: RunSpec) -> dict[str, object]:
 
 
 def _workload_command(run: RunSpec) -> tuple[str, ...]:
+    p4_json = "build/agent_aware.json" if run.system == "ours" else "build/l2fwd.json"
     return (
         sys.executable,
         "-m",
@@ -415,7 +419,42 @@ def _workload_command(run: RunSpec) -> tuple[str, ...]:
         str(run.seed),
         "--output-dir",
         str(run.output_dir),
+        "--p4-json",
+        p4_json,
     )
+
+
+def _validate_run_summary(run: RunSpec) -> str:
+    summary_path = run.output_dir / "run_summary.json"
+    if not summary_path.is_file():
+        raise RuntimeError(f"workload did not produce run_summary.json: {summary_path}")
+    try:
+        encoded = summary_path.read_bytes()
+        raw = json.loads(encoded)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"could not parse run_summary.json: {summary_path}") from exc
+    if not isinstance(raw, Mapping):
+        raise RuntimeError("run_summary.json must contain a JSON object")
+    expected_coordinates = {
+        "system": run.system,
+        "link_mbps": run.link_mbps,
+        "agent_share_pct": run.agent_share_pct,
+        "burst_intensity": run.burst_intensity,
+        "duration_s": run.duration_s,
+        "seed": run.seed,
+    }
+    for field, expected in expected_coordinates.items():
+        if raw.get(field) != expected:
+            raise RuntimeError(f"run_summary.json {field} does not match the run manifest")
+    classes = raw.get("classes")
+    required_classes = {traffic_class.name for traffic_class in TRAINING_LABELS}
+    if not isinstance(classes, Mapping) or set(classes) != required_classes:
+        raise RuntimeError("run_summary.json has invalid class coverage")
+    if not isinstance(raw.get("tool_completion"), Mapping):
+        raise RuntimeError("run_summary.json requires tool_completion metrics")
+    if not isinstance(raw.get("corpus"), Mapping):
+        raise RuntimeError("run_summary.json requires corpus metrics")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def _run_command(command: tuple[str, ...]) -> None:

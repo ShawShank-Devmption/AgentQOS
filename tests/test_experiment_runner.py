@@ -10,6 +10,7 @@ from eval.run_experiment import (
     ExperimentConfig,
     ExperimentLock,
     ExperimentLockedError,
+    RunSpec,
     config_hash,
     execute_config,
     execute_run,
@@ -104,19 +105,34 @@ def test_command_failure_is_recorded_before_it_is_raised(tmp_path: Path) -> None
     assert "failed:" in manifest["error"]
 
 
+def test_successful_command_without_a_run_summary_is_recorded_as_failed(tmp_path: Path) -> None:
+    run = expand_runs(_config(), tmp_path)[0]
+
+    with pytest.raises(RuntimeError, match="run_summary"):
+        execute_run(run, command_runner=lambda command: None)
+
+    manifest = json.loads((run.output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "failed"
+
+
 def test_experiment_delegates_baseline_lifecycle_to_topology_aware_workload(
     tmp_path: Path,
 ) -> None:
     run = expand_runs(_config(), tmp_path)[0]
     commands: list[tuple[str, ...]] = []
 
-    execute_run(run, command_runner=commands.append)
+    def complete_command(command: tuple[str, ...]) -> None:
+        commands.append(command)
+        _write_run_summary(run.output_dir / "run_summary.json", run)
+
+    execute_run(run, command_runner=complete_command)
 
     manifest = json.loads((run.output_dir / "manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "complete"
     assert len(commands) == 1
     assert commands[0][1:3] == ("-m", "harness.demo")
     assert "--execute" in commands[0]
+    assert manifest["run_summary_sha256"]
 
 
 @pytest.mark.parametrize("system", ["fifo", "diffserv", "fairq", "app_limiter"])
@@ -183,3 +199,26 @@ def test_app_limiter_plan_runs_nginx_inside_the_target_namespace(tmp_path: Path)
     assert setup[setup.index("-g") + 1] == "daemon off;"
     assert "docker" not in setup
     assert plan.teardown_commands[0][0] == "nginx"
+
+
+def _write_run_summary(path: Path, run: RunSpec) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "system": run.system,
+                "link_mbps": run.link_mbps,
+                "agent_share_pct": run.agent_share_pct,
+                "burst_intensity": run.burst_intensity,
+                "duration_s": run.duration_s,
+                "seed": run.seed,
+                "classes": {
+                    "HUMAN_INTERACTIVE": {},
+                    "AGENT_INTERACTIVE": {},
+                    "AGENT_BULK": {},
+                },
+                "tool_completion": {},
+                "corpus": {},
+            }
+        ),
+        encoding="utf-8",
+    )
