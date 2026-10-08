@@ -43,7 +43,8 @@ The executor starts one persistent programmed topology, installs the selected ba
 topology, captures pcap plus line-buffered packet telemetry, runs the paced human flow and four
 concurrent agent sources, serves the live dashboard on port 8088, writes labels and metrics, and
 then tears every process down. A manifest becomes `complete` only after `run_summary.json` exists,
-matches the cell coordinates, and its SHA-256 is recorded. Runtime failure or missing evidence
+matches the cell coordinates, matched two-tap evidence is positive and consistent, and SHA-256
+digests for the summary plus both telemetry files are recorded. Runtime failure or missing evidence
 leaves an immutable `failed` manifest.
 
 FIFO, DiffServ, fairq, and app-limiter cells use `build/l2fwd.json`. The proposed-system cell uses
@@ -80,9 +81,9 @@ After all five multi-seed grids complete, aggregate them before plotting:
 make aggregate RESULTS=results AGGREGATES=results/aggregates
 ```
 
-Aggregation verifies each manifest-to-summary SHA-256 link and coordinate set. Single-seed sanity
-configs remain in `audit.csv` but are excluded from statistical rows. Incomplete or failed runs are
-rejected rather than silently omitted. Outputs are `run_metrics.csv`,
+Aggregation verifies each manifest-to-summary/telemetry SHA-256 link and coordinate set. Single-seed
+sanity configs remain in `audit.csv` but are excluded from statistical rows. Incomplete, failed, or
+post-run-mutated evidence is rejected rather than silently omitted. Outputs are `run_metrics.csv`,
 `confidence_intervals.csv`, `centerpiece.csv`, and `audit.csv`. The centerpiece automatically uses
 the largest common high-burst agent share, requires the same two-or-more seed set for all systems,
 and averages one-second human p99 samples across seeds.

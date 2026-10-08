@@ -77,6 +77,15 @@ class RunSpec:
     output_dir: Path
 
 
+@dataclass(frozen=True)
+class RunArtifactDigests:
+    """SHA-256 identities required before a run can become complete."""
+
+    run_summary_sha256: str
+    packet_telemetry_sha256: str
+    ingress_packet_telemetry_sha256: str
+
+
 CommandRunner = Callable[[tuple[str, ...]], None]
 
 
@@ -291,7 +300,7 @@ def execute_run(
     runner = command_runner or _run_command
     try:
         runner(workload)
-        summary_digest = _validate_run_summary(run)
+        artifact_digests = _validate_run_summary(run)
     except Exception as exc:
         # §7.19: preserve the failed append-only cell and diagnostic; never reuse it silently.
         manifest["status"] = "failed"
@@ -300,7 +309,13 @@ def execute_run(
         _write_manifest(manifest_path, manifest)
         raise
     manifest["status"] = "complete"
-    manifest["run_summary_sha256"] = summary_digest
+    manifest.update(
+        {
+            "run_summary_sha256": artifact_digests.run_summary_sha256,
+            "packet_telemetry_sha256": artifact_digests.packet_telemetry_sha256,
+            "ingress_packet_telemetry_sha256": (artifact_digests.ingress_packet_telemetry_sha256),
+        }
+    )
     manifest["finished_at"] = datetime.now(UTC).isoformat()
     _write_manifest(manifest_path, manifest)
 
@@ -425,7 +440,7 @@ def _workload_command(run: RunSpec) -> tuple[str, ...]:
     )
 
 
-def _validate_run_summary(run: RunSpec) -> str:
+def _validate_run_summary(run: RunSpec) -> RunArtifactDigests:
     summary_path = run.output_dir / "run_summary.json"
     if not summary_path.is_file():
         raise RuntimeError(f"workload did not produce run_summary.json: {summary_path}")
@@ -484,11 +499,22 @@ def _validate_run_summary(run: RunSpec) -> str:
         )
     ):
         raise RuntimeError("run_summary.json has invalid two-tap match evidence")
+    telemetry_digests: dict[str, str] = {}
     for telemetry_name in ("packet_telemetry.tsv", "ingress_packet_telemetry.tsv"):
         telemetry_path = run.output_dir / telemetry_name
         if not telemetry_path.is_file():
             raise RuntimeError(f"workload omitted two-tap telemetry: {telemetry_path}")
-    return hashlib.sha256(encoded).hexdigest()
+        try:
+            telemetry_digests[telemetry_name] = hashlib.sha256(
+                telemetry_path.read_bytes()
+            ).hexdigest()
+        except OSError as exc:
+            raise RuntimeError(f"could not hash two-tap telemetry: {telemetry_path}") from exc
+    return RunArtifactDigests(
+        run_summary_sha256=hashlib.sha256(encoded).hexdigest(),
+        packet_telemetry_sha256=telemetry_digests["packet_telemetry.tsv"],
+        ingress_packet_telemetry_sha256=telemetry_digests["ingress_packet_telemetry.tsv"],
+    )
 
 
 def _run_command(command: tuple[str, ...]) -> None:

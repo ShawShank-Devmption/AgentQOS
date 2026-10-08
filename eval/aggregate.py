@@ -69,6 +69,8 @@ def aggregate_results(results_root: Path, output_dir: Path) -> tuple[Path, ...]:
             "manifest",
             "run_summary",
             "run_summary_sha256",
+            "packet_telemetry_sha256",
+            "ingress_packet_telemetry_sha256",
         ),
         audit_rows,
     )
@@ -157,9 +159,19 @@ def _load_artifacts(results_root: Path) -> tuple[RunArtifact, ...]:
         telemetry_path = manifest_path.with_name("packet_telemetry.tsv")
         if not telemetry_path.is_file():
             raise AggregateError(f"run omitted packet telemetry: {telemetry_path}")
+        _verify_digest(
+            telemetry_path,
+            manifest.get("packet_telemetry_sha256"),
+            "packet telemetry",
+        )
         ingress_path = manifest_path.with_name("ingress_packet_telemetry.tsv")
         if not ingress_path.is_file():
             raise AggregateError(f"run omitted ingress packet telemetry: {ingress_path}")
+        _verify_digest(
+            ingress_path,
+            manifest.get("ingress_packet_telemetry_sha256"),
+            "ingress packet telemetry",
+        )
         artifacts.append(RunArtifact(manifest_path.parent, manifest, summary))
     return tuple(artifacts)
 
@@ -336,6 +348,8 @@ def _audit_rows(
             .relative_to(results_root)
             .as_posix(),
             "run_summary_sha256": artifact.manifest["run_summary_sha256"],
+            "packet_telemetry_sha256": artifact.manifest["packet_telemetry_sha256"],
+            "ingress_packet_telemetry_sha256": artifact.manifest["ingress_packet_telemetry_sha256"],
         }
         for artifact in artifacts
     )
@@ -426,6 +440,15 @@ def _read_mapping(path: Path) -> Mapping[str, object]:
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise AggregateError(f"could not parse JSON object: {path}") from exc
     return _mapping(raw, str(path))
+
+
+def _verify_digest(path: Path, expected: object, label: str) -> None:
+    try:
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise AggregateError(f"could not hash {label}: {path}") from exc
+    if expected != actual:
+        raise AggregateError(f"{label} SHA-256 mismatch: {path}")
 
 
 def _mapping(value: object, name: str) -> Mapping[str, object]:

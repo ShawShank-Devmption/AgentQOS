@@ -174,3 +174,10 @@ consensus, but they invalidate the broad statement that nobody has proposed agen
 The claim-safe distinction is now behavioral forwarding-path inference without cooperative
 endpoint/gateway identity, followed immediately by in-network treatment. The project-details HTML
 and paper draft were updated accordingly.
+
+### 2026-10-09 telemetry attestation
+
+Closed a final evidence-integrity hole: complete manifests now store SHA-256 for both target and
+ingress packet telemetry in addition to the run summary. Aggregation verifies all three digests
+before using a cell and includes them in `audit.csv`, so editing telemetry after completion cannot
+silently change the centerpiece timeline.

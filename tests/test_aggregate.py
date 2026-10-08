@@ -73,6 +73,15 @@ def test_aggregate_rejects_summary_hash_mismatch(tmp_path: Path) -> None:
         aggregate_results(results, tmp_path / "aggregates")
 
 
+def test_aggregate_rejects_packet_telemetry_hash_mismatch(tmp_path: Path) -> None:
+    results = tmp_path / "results"
+    run_dir = _write_completed_run(results, "ours", 1, 0.010)
+    (run_dir / "packet_telemetry.tsv").write_text("tampered\n", encoding="utf-8")
+
+    with pytest.raises(AggregateError, match="packet telemetry SHA-256"):
+        aggregate_results(results, tmp_path / "aggregates")
+
+
 def test_aggregate_rejects_missing_ingress_telemetry(tmp_path: Path) -> None:
     results = tmp_path / "results"
     run_dir = _write_completed_run(results, "ours", 1, 0.010)
@@ -129,6 +138,17 @@ def _write_completed_run(
     summary_path = run_dir / "run_summary.json"
     summary_path.write_text(json.dumps(summary, sort_keys=True) + "\n", encoding="utf-8")
     summary_digest = hashlib.sha256(summary_path.read_bytes()).hexdigest()
+    packet_telemetry_path = run_dir / "packet_telemetry.tsv"
+    packet_telemetry_path.write_text(
+        _telemetry_row(100.5, "0x10", 100, "9.0") + _telemetry_row(101.5, "0x11", 200, "9.0"),
+        encoding="utf-8",
+    )
+    ingress_telemetry_path = run_dir / "ingress_packet_telemetry.tsv"
+    ingress_telemetry_path.write_text(
+        _telemetry_row(100.5 - human_rtt_s, "0x10", 100, "")
+        + _telemetry_row(101.5 - human_rtt_s * 2, "0x11", 200, ""),
+        encoding="utf-8",
+    )
     manifest = {
         "status": "complete",
         "name": f"{system}_grid",
@@ -142,18 +162,13 @@ def _write_completed_run(
         "config_hash": config_hash,
         "output_dir": str(run_dir),
         "run_summary_sha256": summary_digest,
+        "packet_telemetry_sha256": hashlib.sha256(packet_telemetry_path.read_bytes()).hexdigest(),
+        "ingress_packet_telemetry_sha256": hashlib.sha256(
+            ingress_telemetry_path.read_bytes()
+        ).hexdigest(),
     }
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8"
-    )
-    (run_dir / "packet_telemetry.tsv").write_text(
-        _telemetry_row(100.5, "0x10", 100, "9.0") + _telemetry_row(101.5, "0x11", 200, "9.0"),
-        encoding="utf-8",
-    )
-    (run_dir / "ingress_packet_telemetry.tsv").write_text(
-        _telemetry_row(100.5 - human_rtt_s, "0x10", 100, "")
-        + _telemetry_row(101.5 - human_rtt_s * 2, "0x11", 200, ""),
-        encoding="utf-8",
     )
     return run_dir
 

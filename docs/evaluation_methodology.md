@@ -49,10 +49,11 @@ precision and recall for every training class, with undefined denominators repor
 rather than zero. Across seeds, means and two-sided 95% Student-t confidence intervals are reported.
 
 Every successful cell writes `run_summary.json`; the enclosing manifest records its SHA-256.
-`eval.aggregate` verifies those hashes and cell coordinates, emits an audit trail and per-run rows,
-and computes Student-t intervals only for multi-seed configs. The centerpiece selects the largest
-agent share shared by all five systems under the high burst preset and averages aligned one-second
-human-p99 samples across a balanced seed set.
+The manifest also records SHA-256 for target and ingress telemetry. `eval.aggregate` verifies all
+three hashes and cell coordinates, emits an audit trail and per-run rows, and computes Student-t
+intervals only for multi-seed configs. The centerpiece selects the largest agent share shared by all
+five systems under the high burst preset and averages aligned one-second human-p99 samples across a
+balanced seed set.
 
 The headline checks compare human p99 against the best baseline and relative per-packet overhead
 against minimal l2fwd. The design targets (30% reduction and under 5% overhead) are supplied

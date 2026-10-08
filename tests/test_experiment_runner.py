@@ -133,6 +133,8 @@ def test_experiment_delegates_baseline_lifecycle_to_topology_aware_workload(
     assert commands[0][1:3] == ("-m", "harness.demo")
     assert "--execute" in commands[0]
     assert manifest["run_summary_sha256"]
+    assert len(manifest["packet_telemetry_sha256"]) == 64
+    assert len(manifest["ingress_packet_telemetry_sha256"]) == 64
 
 
 def test_non_two_tap_run_summary_is_recorded_as_failed(tmp_path: Path) -> None:

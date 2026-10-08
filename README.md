@@ -37,9 +37,9 @@ sudo make experiment CONFIG=eval/configs/fifo_sanity.yaml
 While the cell runs, the live dashboard is available at `http://127.0.0.1:8088`. Results are
 append-only below the config's `outputs` path. A successful manifest is backed by captured traffic,
 orchestration-derived labels, matched two-tap per-class telemetry and coverage, agent attempt
-counts, and a SHA-256-attested `run_summary.json`. Preflight is read-only and reports Linux/root,
-command, Mininet, compiled-program, task-script, Dev A/Dev B, and append-only-path blockers before a
-long run creates output.
+counts, and SHA-256-attested summary plus target/ingress telemetry. Preflight is read-only and
+reports Linux/root, command, Mininet, compiled-program, task-script, Dev A/Dev B, and
+append-only-path blockers before a long run creates output.
 
 The FIFO, DiffServ, fairq, and nginx application-limiter baselines use `build/l2fwd.json`. The
 proposed system additionally requires Dev A/Dev B to provide `p4src/agent_aware.p4`, its compiled
