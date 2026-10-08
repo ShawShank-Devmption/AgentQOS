@@ -3,6 +3,20 @@
 The demo claim is valid only after two complete Linux rehearsals. Copy this checklist for each
 rehearsal and attach the config hash, seed, logs, pcap hashes, and dashboard recording.
 
+Run from the documented idle Linux VM:
+
+```bash
+make dev-env
+make build
+sudo .venv/bin/python -m eval.run_experiment eval/configs/fifo_sanity.yaml --execute
+# After build/agent_aware.json and the Dev B policy lifecycle exist:
+sudo .venv/bin/python -m eval.run_experiment eval/configs/review_1_smoke.yaml --execute
+```
+
+Open `http://127.0.0.1:8088` while each cell is active. Do not reuse a completed or failed output
+directory; clone the sanity config under a new name/seed for the second rehearsal so §7.19 remains
+intact.
+
 ## Rehearsal 1
 
 - [ ] Date, operator, VM/toolchain commits, CPU affinity, and config hash recorded.

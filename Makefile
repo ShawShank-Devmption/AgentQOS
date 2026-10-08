@@ -12,8 +12,10 @@ ORCHESTRATION_LOG ?=
 LABELS ?= results/corpus/labels.csv
 RAW_RESULTS ?= results/aggregates
 FIGURES ?= results/figures
+RESULTS ?= results
+AGGREGATES ?= results/aggregates
 
-.PHONY: lint fmt test build dev-env smoke-m1 corpus experiment figures review-config review-1-host
+.PHONY: lint fmt test build dev-env smoke-m1 corpus experiment aggregate figures review-config review-1-host
 
 lint:
 	$(RUFF) check .
@@ -36,7 +38,7 @@ build/%.json: p4src/%.p4
 # verify the pinned toolchain exists (docs/ENVIRONMENT.md §5); run inside the Linux VM
 dev-env:
 	@ok=1; \
-	for c in p4c p4c-bm2-ss simple_switch mn python3.11 python3.9 tshark tcpreplay iperf3; do \
+	for c in p4c p4c-bm2-ss simple_switch mn python3.11 python3.9 tshark tcpreplay iperf3 nginx; do \
 		command -v $$c >/dev/null 2>&1 && echo "  ok   $$c" || { echo "  MISS $$c"; ok=0; }; \
 	done; \
 	[ $$ok -eq 1 ] && echo "dev-env OK" || { echo "dev-env INCOMPLETE — see docs/ENVIRONMENT.md"; exit 1; }
@@ -53,6 +55,9 @@ corpus:
 experiment:
 	@test -n "$(CONFIG)" || { echo "CONFIG is required"; exit 2; }
 	$(PYTHON) -m eval.run_experiment "$(CONFIG)" --execute
+
+aggregate:
+	$(PYTHON) -m eval.aggregate "$(RESULTS)" "$(AGGREGATES)"
 
 figures:
 	$(PYTHON) -m eval.plots "$(RAW_RESULTS)" "$(FIGURES)"

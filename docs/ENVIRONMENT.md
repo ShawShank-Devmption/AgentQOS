@@ -33,7 +33,7 @@ so you edit on the host and build/run inside the VM.
 
 ```bash
 sudo apt update && sudo apt install -y git build-essential python3-pip curl \
-  software-properties-common tcpdump tshark tcpreplay iperf3
+  software-properties-common tcpdump tshark tcpreplay iperf3 nginx
 sudo add-apt-repository -y ppa:deadsnakes/ppa
 sudo apt install -y python3.11 python3.11-venv python3.9 python3.9-venv
 ```

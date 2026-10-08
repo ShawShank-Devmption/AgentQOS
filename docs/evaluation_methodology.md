@@ -32,10 +32,20 @@ tuned inside an individual run.
 
 ## Metrics and statistical treatment
 
-Human and agent latency use linearly interpolated p50/p95/p99 values. Tool completion time is
-paired directly from the target's request start/end nanoseconds. Classification reports one-vs-rest
-precision and recall for every training class, with undefined denominators reported as undefined
-rather than zero. Across seeds, means and two-sided 95% Student-t confidence intervals are reported.
+Live per-class latency is TCP ACK RTT exported by line-buffered tshark telemetry; throughput is the
+sum of both directions' frame bytes over each sliding window. Human and agent latency use linearly
+interpolated p50/p95/p99 values. The paced 2 Mbps, 1200-byte TCP human stream remains visible to the
+same classifier while approximating an interactive video workload instead of saturating the link as
+an unconstrained bulk transfer. Tool completion time is paired directly from the target's request
+start/end nanoseconds. Classification reports one-vs-rest precision and recall for every training
+class, with undefined denominators reported as undefined rather than zero. Across seeds, means and
+two-sided 95% Student-t confidence intervals are reported.
+
+Every successful cell writes `run_summary.json`; the enclosing manifest records its SHA-256.
+`eval.aggregate` verifies those hashes and cell coordinates, emits an audit trail and per-run rows,
+and computes Student-t intervals only for multi-seed configs. The centerpiece selects the largest
+agent share shared by all five systems under the high burst preset and averages aligned one-second
+human-p99 samples across a balanced seed set.
 
 The headline checks compare human p99 against the best baseline and relative per-packet overhead
 against minimal l2fwd. The design targets (30% reduction and under 5% overhead) are supplied
@@ -52,9 +62,10 @@ mapping to run manifests, config hashes, and seeds. Figure generation never edit
 
 ## Current evidence boundary
 
-The host unit/lint evidence verifies schemas, arithmetic, locking, manifests, metric math,
-dashboard serving, and deterministic figure generation. It does not verify P4 compilation,
-Mininet forwarding, real-framework captures, the full grid, headline anchors, or rehearsals. Those
-claims require the documented Linux environment and archived raw evidence. Live execution is
-currently fail-closed before baseline setup because the required Person 1/2 agent-aware P4 and
-controller pipeline is absent; dry-run manifests are planning artifacts only.
+The host unit/lint evidence verifies schemas, arithmetic, locking, manifests, packet-telemetry
+aggregation, metric math, dashboard serving, and deterministic figure generation. The persistent
+executor is implemented for Linux and the four l2fwd baselines. This host evidence does not verify
+P4 compilation, Mininet forwarding, real-framework captures, the full grid, headline anchors, or
+rehearsals. Those claims require the documented Linux environment and archived raw evidence. The
+proposed-system run additionally requires the absent Dev A/Dev B `agent_aware.p4`, policy install,
+and controller lifecycle. Dry-run manifests remain planning artifacts only.

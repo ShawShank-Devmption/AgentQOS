@@ -12,6 +12,12 @@ parallelism, think time, explicit seed, and orchestration-log path. Task scripts
 `{"tool": ..., "arguments": {...}}` objects. The four stable source identifiers are
 `browser-use`, `playwright-agent`, `autogen`, and `claude-mcp`.
 
+Each adapter also receives a unique `--result-log` path. Completing the assigned attempt set exits
+zero even when the application limiter rejects individual requests; the result file records
+completed and failed counts per framework. Configuration, task-script, or result-write failures
+still exit nonzero and fail the cell. This distinction keeps limiter behavior measurable instead of
+mistaking expected HTTP rejection for harness failure.
+
 The optional `--repetitions` argument repeats the seeded script to sustain an experiment window.
 The storm planner derives repetitions from the burst flow rate, agent-share percentage, duration,
 and script length. Each simultaneous framework uses its own source IP so orchestration windows

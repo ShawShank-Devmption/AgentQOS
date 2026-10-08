@@ -83,3 +83,30 @@ The storm plan now assigns the four concurrent framework adapters distinct topol
 derives task repetitions from burst rate, agent share, duration, and script length. This fixes the
 previous overlapping label windows and metadata-only workload dimensions, but it does not satisfy
 P3.15/P4.1/P4.2 without the missing Person 1/2 data plane and a successful Linux run.
+
+## 2026-10-08 - Persistent storm runtime and audited aggregation
+
+Completed the repository-owned execution path that was previously only planned:
+
+- `TopologySession` owns build, start, forwarding install, readiness, and cleanup for one switch;
+- baseline setup/teardown now runs inside the live switch or target namespace, preserving the
+  configured bottleneck for FIFO, DiffServ, and fairq;
+- the storm runtime concurrently runs full pcap capture, line-buffered packet telemetry, MCP target,
+  a paced video-call-like human TCP stream, four agent sources, and the dashboard;
+- live snapshots report per-class sliding-window throughput plus TCP ACK RTT p50/p95/p99;
+- successful cells require verified labels, at least 95% orchestration traceability, successful MCP
+  completion samples, and a coordinate-matched `run_summary.json` whose SHA-256 is placed in the
+  manifest; and
+- the five complete grid configs contain 375 cells. `eval.aggregate` rejects incomplete evidence,
+  excludes single-seed sanity configs from statistics with an explicit audit flag, computes
+  Student-t intervals, and derives the balanced five-system centerpiece timeline from telemetry.
+
+Fresh host evidence: `make lint` passes and 138 pytest tests pass. Wireshark's official tshark man
+page confirms `-T fields`, `separator=/t`, and repeated `-e`; the official TCP field reference
+confirms `tcp.analysis.ack_rtt` is a time-offset field.
+
+External-runtime boundary remains unchanged: Darwin cannot run Mininet/BMv2, no real approved
+framework credentials or trace corpus are present, and Dev A/Dev B have not supplied
+`p4src/agent_aware.p4`, the compiled JSON, policy installation, or controller lifecycle. Therefore
+baseline/P4 execution, real corpus capture, 375-cell results, anchor outcomes, and two rehearsals
+remain evidence tasks, not completed claims.

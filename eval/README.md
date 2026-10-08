@@ -27,22 +27,50 @@ python -m eval.run_experiment eval/configs/fifo_sanity.yaml \
   --execute --dry-run --project-root /tmp/agentqos-dry-run
 ```
 
-The live entry point is reserved, but intentionally fails before running baseline setup today:
+Execute one config inside the documented Linux VM as root (Mininet requires it):
 
 ```bash
 make experiment CONFIG=eval/configs/fifo_sanity.yaml
 ```
 
-Persistent execution depends on the Person 1/2 `agent_aware.p4` classifier/QoS pipeline and its
-controller lifecycle, which are not present in this checkout. The failure is deliberate: a storm
-plan is not experiment evidence. Once that dependency lands, the executor must start the topology
-before installing baseline commands, drive the complete duration, collect pcaps/logs, and only then
-allow a manifest to become `complete`.
+The executor starts one persistent programmed topology, installs the selected baseline inside that
+topology, captures pcap plus line-buffered packet telemetry, runs the paced human flow and four
+concurrent agent sources, serves the live dashboard on port 8088, writes labels and metrics, and
+then tears every process down. A manifest becomes `complete` only after `run_summary.json` exists,
+matches the cell coordinates, and its SHA-256 is recorded. Runtime failure or missing evidence
+leaves an immutable `failed` manifest.
+
+FIFO, DiffServ, fairq, and app-limiter cells use `build/l2fwd.json`. The proposed-system cell uses
+`build/agent_aware.json`; it cannot run until the Dev A/Dev B classifier, QoS program, policy
+installation, and controller lifecycle land. This is an external integration dependency, not a
+reason to treat a plan or baseline run as proposed-system evidence.
 
 The four baseline sanity definitions are `fifo_sanity.yaml`, `diffserv_sanity.yaml`,
-`fairq_sanity.yaml`, and `app_limiter_sanity.yaml`. The five-seed proposed-system grid is
-`burst_sweep_v1.yaml`; create equivalent frozen-schema configs for each baseline rather than
-editing a config between runs.
+`fairq_sanity.yaml`, and `app_limiter_sanity.yaml`. The complete 375-cell matrix is defined by
+`burst_sweep_v1.yaml`, `fifo_burst_sweep_v1.yaml`, `diffserv_burst_sweep_v1.yaml`,
+`fairq_burst_sweep_v1.yaml`, and `app_limiter_burst_sweep_v1.yaml`: five systems × five shares ×
+three burst presets × five seeds. Never edit a config between runs.
+
+Each successful cell contains the manifest, storm plan, pcap, packet telemetry, MCP and iperf logs,
+orchestration windows, per-framework attempt results, labels, corpus statistics, final run summary,
+and dashboard snapshot/logs. Request rejection is a measured outcome: adapters record failed
+attempts but exit successfully after completing their assigned work, so the app-limiter baseline is
+not incorrectly treated as a harness crash.
+
+## Aggregate completed runs
+
+After all five multi-seed grids complete, aggregate them before plotting:
+
+```bash
+make aggregate RESULTS=results AGGREGATES=results/aggregates
+```
+
+Aggregation verifies each manifest-to-summary SHA-256 link and coordinate set. Single-seed sanity
+configs remain in `audit.csv` but are excluded from statistical rows. Incomplete or failed runs are
+rejected rather than silently omitted. Outputs are `run_metrics.csv`,
+`confidence_intervals.csv`, `centerpiece.csv`, and `audit.csv`. The centerpiece automatically uses
+the largest common high-burst agent share, requires the same two-or-more seed set for all systems,
+and averages one-second human p99 samples across seeds.
 
 ## Aggregate figure inputs
 
