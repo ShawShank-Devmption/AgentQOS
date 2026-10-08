@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from eval.run_experiment import ConfigError, ExperimentConfig, load_config
+from eval.run_experiment import ConfigError, ExperimentConfig, expand_runs, load_config
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,6 +33,27 @@ def test_each_baseline_sanity_config_is_valid(system: str) -> None:
     assert config.agent_share_pct == (30,)
     assert config.burst_intensity == ("low",)
     assert config.seeds == (1,)
+
+
+@pytest.mark.parametrize(
+    ("system", "filename"),
+    [
+        ("ours", "burst_sweep_v1.yaml"),
+        ("fifo", "fifo_burst_sweep_v1.yaml"),
+        ("diffserv", "diffserv_burst_sweep_v1.yaml"),
+        ("fairq", "fairq_burst_sweep_v1.yaml"),
+        ("app_limiter", "app_limiter_burst_sweep_v1.yaml"),
+    ],
+)
+def test_each_system_has_a_complete_five_seed_grid(system: str, filename: str) -> None:
+    config = load_config(PROJECT_ROOT / "eval/configs" / filename)
+    runs = expand_runs(config, PROJECT_ROOT)
+
+    assert config.system == system
+    assert config.agent_share_pct == (10, 30, 50, 70, 90)
+    assert config.burst_intensity == ("low", "med", "high")
+    assert config.seeds == (1, 2, 3, 4, 5)
+    assert len(runs) == 75
 
 
 @pytest.mark.parametrize(

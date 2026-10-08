@@ -1,0 +1,9 @@
+name: app_limiter_burst_sweep_v1
+system: app_limiter
+topology: choke_v1
+link_mbps: 20
+agent_share_pct: [10, 30, 50, 70, 90]
+burst_intensity: [low, med, high]
+duration_s: 120
+seeds: [1, 2, 3, 4, 5]
+outputs: results/app_limiter_burst_sweep_v1/
