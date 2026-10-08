@@ -77,7 +77,7 @@ Goal: working prototype + Mininet/BMv2 evaluation + IEEE-format research paper f
 <li><strong>53% of internet traffic is automated</strong> (Thales 2026 Bad Bot Report, 13th edition, full-year 2025 data): bad bots 40% (up 3 points YoY), benign automation 13%, human traffic down to 47% from 49%.</li>
 <li><strong>AI agents have emerged as a third traffic category</strong> alongside traditional good and bad bots — interacting directly with applications and APIs, running real browsers with valid fingerprints and human-pattern interaction, defeating classic detection.</li>
 <li><strong>AI-driven bot attacks surged 12.5× in 2025</strong> vs 2024 — daily blocked attacks rose from 2 million to 25 million. (Scope note: 12.5× refers to attack volume specifically, not all agent traffic.)</li>
-<li>Operators and standards bodies are actively discussing differentiated treatment of AI/agent traffic; a concrete citation will be pinned before paper submission.</li>
+<li>IETF contributors are actively proposing differentiated treatment of AI/agent traffic, including agent policy-aware networks and gateway policies for DSCP, traffic classes, queues, shaping, and policing (<a href="https://datatracker.ietf.org/doc/draft-zhang-rtgwg-agent-policy-aware-network/">draft-zhang-rtgwg-agent-policy-aware-network-01</a>; <a href="https://datatracker.ietf.org/doc/draft-zhao-opsawg-agent-gateway-policy/">draft-zhao-opsawg-agent-gateway-policy-00</a>). These are individual Internet-Drafts, work in progress, and not IETF consensus.</li>
 </ul>
 <p>The concrete harm: an agent fires 50 parallel MCP tool-calls across the same link as a human video call. Every switch on the path sees 51 indistinguishable TLS flows on port 443 and queues them together; the human’s packets wait behind the machine-paced burst, and that queuing delay <em>is</em> the p99 latency spike. The network cannot fix what it cannot distinguish.</p>
 
@@ -126,7 +126,7 @@ Goal: working prototype + Mininet/BMv2 evaluation + IEEE-format research paper f
 </table>
 
 <h3>5.4 · Gap synthesis</h3>
-<p>Stream A detects agents but cannot act, operates at the application layer, and its best results lean on signals a switch never sees — while its own ablations show the network layer alone is unsolved. Stream B acts inside the data plane at line rate but has never targeted agent traffic; its closest action-coupling precedent (ACC-Turbo) keys on attack aggregates, not traffic identity. Stream C serves agents from the network’s management plane without ever treating agent flows as a traffic class. <strong>Gap statement (for the paper):</strong> no prior system classifies agentic/MCP/A2A traffic in the forwarding path, and no prior system couples agent-traffic identity to transport-layer QoS treatment. This work is, to our knowledge, the first to do both in a single data-plane pipeline.</p>
+<p>Stream A detects agents but cannot act, operates at the application layer, and its best results lean on signals a switch never sees — while its own ablations show the network layer alone is unsolved. Stream B acts inside the data plane at line rate but has never targeted agent traffic; its closest action-coupling precedent (ACC-Turbo) keys on attack aggregates, not traffic identity. Stream C and emerging July 2026 Internet-Drafts propose network-aware agents, explicit policy intents, and gateway-recognized agent QoS, but do not demonstrate behavioral inference from bounded forwarding-path features. <strong>Gap statement (for the paper):</strong> the verified sources do not present an evaluated system that infers agent classes from forwarding-path behavior without cooperative endpoint or gateway identity and immediately couples that inference to in-network QoS treatment.</p>
 
 <h2>6 · Novelty — Four Distinguishing Axes</h2>
 <ol>
@@ -263,6 +263,9 @@ Goal: working prototype + Mininet/BMv2 evaluation + IEEE-format research paper f
 <li>ACC-Turbo (SIGCOMM 2022) — in-network aggregate clustering coupled to programmable scheduling for pulse-wave DDoS mitigation.</li>
 <li>NetMCP + SONAR (Li et al., 2025) — network-aware MCP tool invocation weighing semantics and real-time QoS.</li>
 <li>arXiv 2607.16066 — survey: LLM-powered agentic AI for 5G/6G architectures, protocols, standardization (MCP/A2A in management planes).</li>
+<li>draft-zhang-rtgwg-agent-policy-aware-network-01 — proposed agent-aware controller/device and explicit agent-intent-to-network-policy mapping (individual Internet-Draft; work in progress).</li>
+<li>draft-zhao-opsawg-agent-gateway-policy-00 — gateway-recognized agent policy with DSCP, traffic class, queueing, shaping, and policing actions (individual Internet-Draft; work in progress).</li>
+<li>draft-hw-protocol-agent-00 — endpoint-signalled multimodal agent streams and differentiated QoS requirements (individual Internet-Draft; work in progress).</li>
 <li>RFC 9421 / Web Bot Auth (Cloudflare, IETF) — cooperative cryptographic agent identification signals.</li>
 </ul>
 

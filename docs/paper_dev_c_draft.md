@@ -9,13 +9,14 @@ exist. Literature keys refer to `docs/dev_c_literature_and_data.md`.
 AI agents increasingly generate concurrent tool and browser traffic whose latency sensitivity is
 not visible to conventional port-based policy. We present Agent-Aware Networking, a programmable
 data-plane system that classifies flows as human-interactive, agent-interactive, agent-bulk, or
-unknown and couples the inferred class to differentiated forwarding treatment. The design combines
-bounded flow features in P4 with controller-assisted reclassification and a fail-open policy for
-uncertain traffic. We evaluate it in a controlled BMv2/Mininet bottleneck against FIFO, static
-port-based DiffServ, hashed per-flow fair queueing, and an application-layer limiter across agent
-share, burst intensity, and at least five seeds. [RESULT: human p99 comparison, with CI and artifact
-reference.] [RESULT: per-class precision/recall and checkpoint.] [RESULT: relative pipeline
-overhead.] These results [CONCLUSION SUPPORTED BY RESULTS ONLY].
+unknown from bounded forwarding-path behavior and couples the inferred class to differentiated
+forwarding treatment without requiring cooperative endpoint identity. The design combines bounded
+flow features in P4 with controller-assisted reclassification and a fail-open policy for uncertain
+traffic. We evaluate it in a controlled BMv2/Mininet bottleneck against FIFO, static port-based
+DiffServ, hashed per-flow fair queueing, and an application-layer limiter across agent share, burst
+intensity, and at least five seeds. [RESULT: human p99 comparison, with CI and artifact reference.]
+[RESULT: per-class precision/recall and checkpoint.] [RESULT: relative pipeline overhead.] These
+results [CONCLUSION SUPPORTED BY RESULTS ONLY].
 
 ## Evaluation methodology
 
@@ -145,8 +146,10 @@ bounded timing/size/handshake features. Hash collisions and asymmetric visibilit
 state; uncertain or malformed traffic therefore follows the documented fail-open path. DSCP has
 only domain-local force unless adjacent domains honor the same policy. Two-tap matching covers only
 IPv4/TCP packets with stable identity fields, excludes unmatched packets, and still needs live
-match-coverage validation. Finally, the Stream C literature moves quickly; the novelty statement is
-bounded to the verified sources and requires a pre-submission rescan.
+match-coverage validation. July 2026 Internet-Drafts already propose explicit agent identity mapped
+to network QoS, so novelty is limited to behavioral forwarding-path inference without cooperative
+identity and an evaluated inference-to-treatment pipeline. The Stream C literature moves quickly;
+this bounded claim still requires a pre-submission rescan.
 
 ## Conclusion draft
 

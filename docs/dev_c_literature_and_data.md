@@ -9,10 +9,24 @@ evaluation and related-work sections. It is not a substitute for reading the cit
 |---|---|---|---|
 | NetMCP | E. Li, H. Du, and K. Huang, “NetMCP: Network-Aware Model Context Protocol Platform for LLM Capability Extension,” arXiv:2510.13467, 2025. [Abstract](https://arxiv.org/abs/2510.13467) | NetMCP supplies a heterogeneous MCP test platform. Its SONAR algorithm combines semantic similarity with observed network/server QoS to select tools. It is the closest Stream C comparison for network-aware MCP operation. | SONAR routes at the MCP application layer. It does not identify agent traffic in a forwarding pipeline or apply class-specific in-network QoS. |
 | Agentic-network survey | M. Ameur, A. Mekrache, B. Brik, and A. Ksentini, “LLM-Powered Agentic AI for 5G/6G Networks: A Tutorial and Survey on Architectures, Protocols, and Standardization,” arXiv:2607.16066v1, 2026. [Abstract and version record](https://arxiv.org/abs/2607.16066v1) | The survey maps agent capabilities to 5G/6G control, management, and AI-native planes and documents agents *managing networks*. This supports describing that direction as the inverse of the present system. | The source is a July 2026 preprint marked “under review”; do not describe it as peer reviewed or as an implementation of data-plane agent classification. |
+| Agent policy-aware network | X. Zhang, “Use Cases and Requirements for AI Agent Policy-Aware Network,” `draft-zhang-rtgwg-agent-policy-aware-network-01`, July 2026. [IETF Datatracker](https://datatracker.ietf.org/doc/draft-zhang-rtgwg-agent-policy-aware-network/) | Proposes flow-aware-to-agent-aware networking, explicit agent policy intents, an agent-aware controller/device, and mappings to differentiated network resources. This invalidates an unqualified claim that nobody has proposed agent identity coupled to network policy. | Individual Internet-Draft, work in progress, not IETF consensus. It depends on explicit intent/collaboration and presents requirements/architecture rather than an evaluated behavioral P4 classifier. |
+| Agent gateway policy | B. Zhao et al., “Agent Gateway Policy Control Model,” `draft-zhao-opsawg-agent-gateway-policy-00`, July 2026. [IETF Datatracker](https://datatracker.ietf.org/doc/draft-zhao-opsawg-agent-gateway-policy/) | Defines gateway-recognized agent policy attributes and network-visible actions including bandwidth/pacing limits, DSCP, traffic class, queues, shaping, and policing. It is now the closest conceptual classification-to-QoS comparison. | Individual Internet-Draft, work in progress, not IETF consensus. It requires a gateway-recognized identity/selector and does not infer identity from bounded forwarding-path behavior. |
+| Multimodal agent protocols | H. Wang et al., “AI Agent Protocols for Multi-modality,” `draft-hw-protocol-agent-00`, March 2026. [IETF archive](https://www.ietf.org/archive/id/draft-hw-protocol-agent-00.html) | Calls for networks to recognize multimodal agent-traffic characteristics and provide differentiated QoS, with endpoints signalling stream/modality mappings. | Individual Internet-Draft, work in progress. It is cooperative endpoint signalling, not passive traffic-class inference. |
 
-The defensible gap statement is narrow: these verified Stream C sources do not present a system
-that infers agent classes from forwarding-path traffic and couples those classes to in-network
-queueing/metering. A final novelty claim still requires a submission-date literature rescan.
+The defensible gap statement is therefore narrow: the verified sources do not present an evaluated
+system that infers agent classes from bounded forwarding-path behavior *without explicit endpoint or
+gateway identity* and immediately couples the inference to in-network queueing/metering. Do not use
+the former “no prior classification-to-QoS coupling” claim. A final novelty claim still requires a
+submission-date literature rescan.
+
+## Motivation measurement
+
+Thales' official 2026 Bad Bot Report announcement states that 2025 bots exceeded 53% of web traffic,
+40% was malicious, human traffic fell to 47%, and AI-driven bot attacks increased 12.5× year over
+year. It also describes AI agents as an emerging third category alongside good and bad bots. Cite
+the [official Thales release](https://cpl.thalesgroup.com/about-us/newsroom/ai-driven-bot-attacks-surged-according-to-bad-bot-report),
+not a secondary summary. “13% benign automation” is arithmetic from 53% minus 40%, not a separately
+reported measurement in the release; label it as an inference or omit it.
 
 ## DiffServ, congestion signalling, and queueing
 
@@ -56,6 +70,10 @@ permission to redistribute the trace or establish that it was successfully repla
 - “All traces downloaded”: false until an authorized CAIDA user obtains the selected dataset.
 - “Four real agent frameworks captured”: the dependency-free adapters exercise the wire contract
   but do not establish framework provenance.
+- “No prior agent-to-QoS coupling”: contradicted at proposal level by the July 2026 Internet-Drafts.
+  The supported distinction is behavioral forwarding-path inference without cooperative identity.
+- “IETF standardizes this approach”: false. The cited documents are individual, expiring
+  Internet-Drafts and explicitly not IETF consensus.
 - “Embedded-payload timestamp latency”: the implementation instead matches packet identities across
   two timestamped tshark taps on the same emulation host. Report the implemented method precisely;
   do not imply that application payloads were modified.

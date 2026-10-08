@@ -163,3 +163,14 @@ into append-only `anchors.json`. It selects the lowest-mean-p99 baseline, record
 SHA-256 digests and explicit thresholds, and writes PASS/FAIL flags for both design anchors. A
 missed anchor returns status 2 after preserving the failed report. Thresholds stay command-line
 inputs because they are not part of the frozen shared contract.
+
+### 2026-10-09 competing-work rescan
+
+The rescan found three 2026 individual Internet-Drafts that materially narrow the novelty claim:
+agent policy-aware networking, agent-gateway policy control, and multimodal agent protocols. They
+propose explicit/cooperative agent identity mapped to differentiated QoS; the gateway-policy draft
+names DSCP, traffic classes, queues, shaping, and policing. They are work in progress and not IETF
+consensus, but they invalidate the broad statement that nobody has proposed agent-to-QoS coupling.
+The claim-safe distinction is now behavioral forwarding-path inference without cooperative
+endpoint/gateway identity, followed immediately by in-network treatment. The project-details HTML
+and paper draft were updated accordingly.
