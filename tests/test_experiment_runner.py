@@ -135,6 +135,24 @@ def test_experiment_delegates_baseline_lifecycle_to_topology_aware_workload(
     assert manifest["run_summary_sha256"]
 
 
+def test_non_two_tap_run_summary_is_recorded_as_failed(tmp_path: Path) -> None:
+    run = expand_runs(_config(), tmp_path)[0]
+
+    def write_invalid_summary(command: tuple[str, ...]) -> None:
+        del command
+        _write_run_summary(run.output_dir / "run_summary.json", run)
+        summary_path = run.output_dir / "run_summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["latency_method"] = "tcp_ack_rtt"
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="matched two-tap"):
+        execute_run(run, command_runner=write_invalid_summary)
+
+    manifest = json.loads((run.output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "failed"
+
+
 @pytest.mark.parametrize("system", ["fifo", "diffserv", "fairq", "app_limiter"])
 def test_each_baseline_has_setup_and_teardown_commands(system: str) -> None:
     plan = baseline_plan(system, link_mbps=20)
@@ -211,6 +229,12 @@ def _write_run_summary(path: Path, run: RunSpec) -> None:
                 "burst_intensity": run.burst_intensity,
                 "duration_s": run.duration_s,
                 "seed": run.seed,
+                "latency_method": "matched_two_tap",
+                "latency_match": {
+                    "eligible_packets": 10,
+                    "matched_packets": 9,
+                    "coverage": 0.9,
+                },
                 "classes": {
                     "HUMAN_INTERACTIVE": {},
                     "AGENT_INTERACTIVE": {},
@@ -223,3 +247,5 @@ def _write_run_summary(path: Path, run: RunSpec) -> None:
         ),
         encoding="utf-8",
     )
+    path.with_name("packet_telemetry.tsv").write_text("target\n", encoding="utf-8")
+    path.with_name("ingress_packet_telemetry.tsv").write_text("ingress\n", encoding="utf-8")

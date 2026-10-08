@@ -14,8 +14,10 @@ RAW_RESULTS ?= results/aggregates
 FIGURES ?= results/figures
 RESULTS ?= results
 AGGREGATES ?= results/aggregates
+SANITY_CONFIGS := fifo_sanity diffserv_sanity fairq_sanity app_limiter_sanity
+GRID_CONFIGS := burst_sweep_v1 fifo_burst_sweep_v1 diffserv_burst_sweep_v1 fairq_burst_sweep_v1 app_limiter_burst_sweep_v1
 
-.PHONY: lint fmt test build dev-env smoke-m1 corpus experiment aggregate figures review-config review-1-host
+.PHONY: lint fmt test build dev-env smoke-m1 corpus preflight experiment baseline-sanity full-grid aggregate figures review-config review-1-host
 
 lint:
 	$(RUFF) check .
@@ -52,9 +54,22 @@ corpus:
 	@test -n "$(ORCHESTRATION_LOG)" || { echo "ORCHESTRATION_LOG is required"; exit 2; }
 	$(PYTHON) -m harness.capture --pcap "$(PCAP)" --orchestration-log "$(ORCHESTRATION_LOG)" --output "$(LABELS)"
 
-experiment:
+preflight:
 	@test -n "$(CONFIG)" || { echo "CONFIG is required"; exit 2; }
+	$(PYTHON) -m eval.preflight "$(CONFIG)"
+
+experiment: preflight
 	$(PYTHON) -m eval.run_experiment "$(CONFIG)" --execute
+
+baseline-sanity: build/l2fwd.json
+	@for name in $(SANITY_CONFIGS); do \
+		$(MAKE) experiment CONFIG="eval/configs/$$name.yaml" || exit $$?; \
+	done
+
+full-grid: build
+	@for name in $(GRID_CONFIGS); do \
+		$(MAKE) experiment CONFIG="eval/configs/$$name.yaml" || exit $$?; \
+	done
 
 aggregate:
 	$(PYTHON) -m eval.aggregate "$(RESULTS)" "$(AGGREGATES)"

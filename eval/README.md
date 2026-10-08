@@ -30,8 +30,14 @@ python -m eval.run_experiment eval/configs/fifo_sanity.yaml \
 Execute one config inside the documented Linux VM as root (Mininet requires it):
 
 ```bash
+make preflight CONFIG=eval/configs/fifo_sanity.yaml
 make experiment CONFIG=eval/configs/fifo_sanity.yaml
 ```
+
+`eval.preflight` is read-only. It checks Linux/root execution, required commands, the Mininet Python
+module, the selected compiled P4 JSON, the deterministic task script, Dev A/Dev B files for the
+proposed system, and every append-only cell path. `make experiment` runs this gate before it creates
+the first result directory.
 
 The executor starts one persistent programmed topology, installs the selected baseline inside that
 topology, captures pcap plus line-buffered packet telemetry, runs the paced human flow and four
@@ -51,11 +57,20 @@ The four baseline sanity definitions are `fifo_sanity.yaml`, `diffserv_sanity.ya
 `fairq_burst_sweep_v1.yaml`, and `app_limiter_burst_sweep_v1.yaml`: five systems × five shares ×
 three burst presets × five seeds. Never edit a config between runs.
 
-Each successful cell contains the manifest, storm plan, pcap, packet telemetry, MCP and iperf logs,
-orchestration windows, per-framework attempt results, labels, corpus statistics, final run summary,
-and dashboard snapshot/logs. Request rejection is a measured outcome: adapters record failed
+Each successful cell contains the manifest, storm plan, pcap, target and ingress packet telemetry,
+MCP and iperf logs, orchestration windows, per-framework attempt results, labels, corpus statistics,
+final run summary, and dashboard snapshot/logs. Packet identities are matched across the
+class-host-facing switch ports and target interface; summaries record match coverage and cannot
+complete with ACK RTT fallback. Request rejection is a measured outcome: adapters record failed
 attempts but exit successfully after completing their assigned work, so the app-limiter baseline is
 not incorrectly treated as a harness crash.
+
+Run all four baseline sanity configs, then the complete grid only after every preflight is green:
+
+```bash
+sudo make baseline-sanity
+sudo make full-grid
+```
 
 ## Aggregate completed runs
 

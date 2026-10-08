@@ -146,3 +146,12 @@ DESIGN GAP: the design's “embedded timestamps” wording implies payload instr
 implementation deliberately uses same-host capture timestamps plus packet identity so real
 framework and iperf payloads remain unchanged. The actual method is documented in the paper draft;
 Linux execution must still establish packet-match coverage and capture-clock behavior.
+
+### 2026-10-09 completion gate and Linux handoff
+
+The experiment runner now refuses to mark a cell complete unless its summary declares matched
+two-tap latency, supplies positive and internally consistent match evidence, and retains both target
+and ingress telemetry files. Added a read-only `eval.preflight` gate and Make targets for one config,
+all four baseline sanity runs, and the five-config full grid. Preflight reports host, privilege,
+command, Mininet, compiled P4, task-script, integration-file, and append-only output blockers before
+the experiment creates any result directory.

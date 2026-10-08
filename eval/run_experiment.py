@@ -7,6 +7,7 @@ import fcntl
 import hashlib
 import json
 import logging
+import math
 import os
 import subprocess
 import sys
@@ -456,6 +457,37 @@ def _validate_run_summary(run: RunSpec) -> str:
         raise RuntimeError("run_summary.json requires agent_attempts metrics")
     if not isinstance(raw.get("corpus"), Mapping):
         raise RuntimeError("run_summary.json requires corpus metrics")
+    if raw.get("latency_method") != "matched_two_tap":
+        raise RuntimeError("run_summary.json requires matched two-tap latency")
+    latency_match = raw.get("latency_match")
+    if not isinstance(latency_match, Mapping):
+        raise RuntimeError("run_summary.json requires two-tap match evidence")
+    eligible = latency_match.get("eligible_packets")
+    matched = latency_match.get("matched_packets")
+    coverage = latency_match.get("coverage")
+    if (
+        isinstance(eligible, bool)
+        or not isinstance(eligible, int)
+        or eligible <= 0
+        or isinstance(matched, bool)
+        or not isinstance(matched, int)
+        or matched <= 0
+        or matched > eligible
+        or isinstance(coverage, bool)
+        or not isinstance(coverage, (int, float))
+        or not math.isfinite(float(coverage))
+        or not math.isclose(
+            float(coverage),
+            matched / eligible,
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        )
+    ):
+        raise RuntimeError("run_summary.json has invalid two-tap match evidence")
+    for telemetry_name in ("packet_telemetry.tsv", "ingress_packet_telemetry.tsv"):
+        telemetry_path = run.output_dir / telemetry_name
+        if not telemetry_path.is_file():
+            raise RuntimeError(f"workload omitted two-tap telemetry: {telemetry_path}")
     return hashlib.sha256(encoded).hexdigest()
 
 
