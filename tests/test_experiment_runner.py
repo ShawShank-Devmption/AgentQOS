@@ -104,20 +104,19 @@ def test_command_failure_is_recorded_before_it_is_raised(tmp_path: Path) -> None
     assert "failed:" in manifest["error"]
 
 
-def test_default_execution_fails_before_baseline_side_effects(
+def test_experiment_delegates_baseline_lifecycle_to_topology_aware_workload(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run = expand_runs(_config(), tmp_path)[0]
     commands: list[tuple[str, ...]] = []
-    monkeypatch.setattr("eval.run_experiment._run_command", commands.append)
 
-    with pytest.raises(RuntimeError, match="persistent experiment execution is unavailable"):
-        execute_run(run)
+    execute_run(run, command_runner=commands.append)
 
     manifest = json.loads((run.output_dir / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["status"] == "failed"
-    assert commands == []
+    assert manifest["status"] == "complete"
+    assert len(commands) == 1
+    assert commands[0][1:3] == ("-m", "harness.demo")
+    assert "--execute" in commands[0]
 
 
 @pytest.mark.parametrize("system", ["fifo", "diffserv", "fairq", "app_limiter"])

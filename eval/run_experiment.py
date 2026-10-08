@@ -30,7 +30,7 @@ from common.contracts import (
     MIN_AGENT_SHARE_PCT,
     MIN_LINK_MBPS,
 )
-from eval.baselines.base import BaselinePlan, baseline_plan
+from eval.baselines.base import baseline_plan
 
 LOGGER = logging.getLogger(__name__)
 HOST_LOCK_PATH = Path("/tmp/agentqos-experiment.lock")
@@ -287,26 +287,14 @@ def execute_run(
         return
 
     runner = command_runner or _run_command
-    setup_started = False
     try:
-        if command_runner is None:
-            from harness.demo import require_live_executor
-
-            require_live_executor()
-        setup_started = True
-        for command in plan.setup_commands:
-            runner(command)
         runner(workload)
-        for command in plan.teardown_commands:
-            runner(command)
     except Exception as exc:
         # §7.19: preserve the failed append-only cell and diagnostic; never reuse it silently.
         manifest["status"] = "failed"
         manifest["error"] = str(exc)
         manifest["finished_at"] = datetime.now(UTC).isoformat()
         _write_manifest(manifest_path, manifest)
-        if setup_started:
-            _best_effort_teardown(plan, runner)
         raise
     manifest["status"] = "complete"
     manifest["finished_at"] = datetime.now(UTC).isoformat()
@@ -438,14 +426,6 @@ def _run_command(command: tuple[str, ...]) -> None:
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "no diagnostic output"
         raise RuntimeError(f"command failed ({command[0]}): {detail}")
-
-
-def _best_effort_teardown(plan: BaselinePlan, runner: CommandRunner) -> None:
-    for command in plan.teardown_commands:
-        try:
-            runner(command)
-        except Exception:
-            LOGGER.exception("baseline teardown failed: %s", command)
 
 
 def _write_manifest(path: Path, values: Mapping[str, object]) -> None:
