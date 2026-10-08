@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+import harness.topology as topology
+from controller.switch_api import SwitchApiError
 from harness.topology import (
     HOSTS,
     SwitchLaunchConfig,
@@ -67,6 +69,86 @@ def test_forwarding_commands_program_flood_group_and_all_host_macs() -> None:
 def test_switch_launch_config_requires_compiled_p4_json(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         SwitchLaunchConfig(p4_json=tmp_path / "missing.json")
+
+
+class _Clock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class _RunningProcess:
+    def poll(self) -> int | None:
+        return None
+
+
+class _ExitedProcess:
+    def poll(self) -> int | None:
+        return 1
+
+
+class _EventuallyReadyApi:
+    def __init__(self, failures: int) -> None:
+        self.failures = failures
+        self.reads = 0
+
+    def read_register(self, register_name: str, index: int | None = None) -> tuple[int, ...]:
+        self.reads += 1
+        if self.reads <= self.failures:
+            raise SwitchApiError("thrift unavailable")
+        return (0,)
+
+
+def test_switch_readiness_retries_thrift_until_register_is_readable() -> None:
+    clock = _Clock()
+    api = _EventuallyReadyApi(failures=2)
+
+    topology._wait_for_switch_ready(
+        api,
+        _RunningProcess(),
+        timeout_s=1.0,
+        poll_interval_s=0.1,
+        clock=clock,
+        sleeper=clock.sleep,
+    )
+
+    assert api.reads == 3
+    assert clock.now == pytest.approx(0.2)
+
+
+def test_switch_readiness_fails_immediately_if_process_exits() -> None:
+    clock = _Clock()
+
+    with pytest.raises(RuntimeError, match="exited during startup"):
+        topology._wait_for_switch_ready(
+            _EventuallyReadyApi(failures=1),
+            _ExitedProcess(),
+            timeout_s=1.0,
+            poll_interval_s=0.1,
+            clock=clock,
+            sleeper=clock.sleep,
+        )
+
+    assert clock.now == 0.0
+
+
+def test_switch_readiness_times_out_with_specific_diagnostic() -> None:
+    clock = _Clock()
+
+    with pytest.raises(RuntimeError, match="not ready after 0.3 seconds"):
+        topology._wait_for_switch_ready(
+            _EventuallyReadyApi(failures=100),
+            _RunningProcess(),
+            timeout_s=0.3,
+            poll_interval_s=0.1,
+            clock=clock,
+            sleeper=clock.sleep,
+        )
 
 
 class _FailingNetwork:

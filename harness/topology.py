@@ -10,19 +10,32 @@ import platform
 import shutil
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
-from common.contracts import EXPERIMENT_TOPOLOGY, MAX_LINK_MBPS, MIN_LINK_MBPS
-from controller.switch_api import SwitchApi
+from common.contracts import (
+    EXPERIMENT_TOPOLOGY,
+    MAX_LINK_MBPS,
+    MIN_LINK_MBPS,
+    POLICY_VERSION_REGISTER,
+)
+from controller.switch_api import SwitchApi, SwitchApiError
 
 SWITCH_NAME = "s1"
 TARGET_NAME = "h_target"
 HUMAN_NAME = "h_human"
 FLOOD_GROUP = 1
 LOGGER = logging.getLogger(__name__)
+
+
+class _ProcessProbe(Protocol):
+    def poll(self) -> int | None: ...
+
+
+class _RegisterReader(Protocol):
+    def read_register(self, register_name: str, index: int | None = None) -> tuple[int, ...]: ...
 
 
 @dataclass(frozen=True)
@@ -292,10 +305,14 @@ def _create_network(config: SwitchLaunchConfig) -> Any:
             except OSError:
                 self._log_handle.close()
                 raise
-            time.sleep(0.2)
-            if self._process.poll() is not None:
+            try:
+                _wait_for_switch_ready(
+                    SwitchApi(config.cli_path, config.thrift_port),
+                    self._process,
+                )
+            except RuntimeError:
                 self._log_handle.close()
-                raise RuntimeError(f"simple_switch exited during startup; see {config.switch_log}")
+                raise
 
         def stop(self, deleteIntfs: bool = True) -> None:  # noqa: N803
             process = getattr(self, "_process", None)
@@ -320,6 +337,30 @@ def _create_network(config: SwitchLaunchConfig) -> Any:
         autoStaticArp=False,
         build=False,
     )
+
+
+def _wait_for_switch_ready(
+    api: _RegisterReader,
+    process: _ProcessProbe,
+    *,
+    timeout_s: float = 5.0,
+    poll_interval_s: float = 0.05,
+    clock: Callable[[], float] = time.monotonic,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> None:
+    deadline = clock() + timeout_s
+    while True:
+        if process.poll() is not None:
+            raise RuntimeError("simple_switch exited during startup")
+        try:
+            api.read_register(POLICY_VERSION_REGISTER, index=0)
+            return
+        except SwitchApiError:
+            if clock() >= deadline:
+                raise RuntimeError(
+                    f"simple_switch thrift API was not ready after {timeout_s:g} seconds"
+                ) from None
+            sleeper(poll_interval_s)
 
 
 def _parse_iperf_throughput(raw_result: str) -> float:
