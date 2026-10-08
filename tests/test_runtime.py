@@ -2,13 +2,17 @@
 
 import json
 from contextlib import AbstractContextManager
+from decimal import Decimal
+from ipaddress import IPv4Address
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 import harness.runtime as runtime
+from common.contracts import TrafficClass
 from eval.baselines.base import baseline_plan
+from harness.capture import CaptureWindow, CorpusVerification
 from harness.demo import StormConfig, build_storm_plan
 from harness.runtime import run_storm
 from harness.topology import SwitchLaunchConfig
@@ -274,3 +278,47 @@ def test_network_storm_cleans_up_when_an_agent_fails(tmp_path: Path) -> None:
     assert target.background
     assert all(process.terminated for process in target.background)
     assert events[-1] == "s1:tc:run"
+
+
+def test_run_summary_retains_coordinates_class_metrics_and_completion_times(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    config.output_dir.mkdir()
+    (config.output_dir / "packet_telemetry.tsv").write_text(
+        "10.0\t10.0.0.2\t10.0.0.100\t1000\t0.010\n"
+        "11.0\t10.0.0.1\t10.0.0.100\t500\t0.020\n"
+        "12.0\t10.0.0.6\t10.0.0.100\t250\t0.030\n",
+        encoding="utf-8",
+    )
+    (config.output_dir / "mcp_requests.jsonl").write_text(
+        json.dumps(
+            {
+                "start_time_ns": 1_000_000_000,
+                "end_time_ns": 1_025_000_000,
+                "status": "ok",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    windows = (
+        CaptureWindow(
+            IPv4Address("10.0.0.2"),
+            Decimal("10"),
+            Decimal("15"),
+            TrafficClass.HUMAN_INTERACTIVE,
+            "iperf-human",
+        ),
+    )
+    verification = CorpusVerification(3, 3, 1.0, {"iperf-human": 1})
+
+    runtime.write_run_summary(config, windows, verification)
+
+    summary = json.loads((config.output_dir / "run_summary.json").read_text(encoding="utf-8"))
+    assert summary["system"] == "fifo"
+    assert summary["agent_share_pct"] == 30
+    assert summary["classes"]["HUMAN_INTERACTIVE"]["p99_ms"] == pytest.approx(10.0)
+    assert summary["tool_completion"]["count"] == 1
+    assert summary["tool_completion"]["p99_ms"] == pytest.approx(25.0)
+    assert summary["corpus"]["verification_rate"] == 1.0

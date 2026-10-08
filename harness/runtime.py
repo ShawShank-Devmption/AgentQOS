@@ -17,9 +17,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from common.contracts import TrafficClass
+from dashboard.producer import build_snapshot
 from eval.baselines.base import BaselinePlan, baseline_plan
+from eval.metrics import completion_times, percentile_summary
 from harness.capture import (
     CaptureWindow,
+    CorpusVerification,
     label_pcap_flows,
     read_capture_windows,
     verify_corpus,
@@ -466,6 +469,58 @@ def _collect_artifacts(config: StormConfig) -> None:
     stats_path = config.output_dir / "corpus_stats.json"
     stats_path.write_text(
         json.dumps(asdict(verification), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    if verification.verification_rate < 0.95:
+        raise RuntimeError(
+            f"corpus verification rate is below 95%: {verification.verification_rate:.3f}"
+        )
+    write_run_summary(config, windows, verification)
+
+
+def write_run_summary(
+    config: StormConfig,
+    windows: tuple[CaptureWindow, ...],
+    verification: CorpusVerification,
+) -> None:
+    """Write analysis-ready class and completion metrics for one run.
+
+    Args:
+        config: Coordinates for the completed storm cell.
+        windows: Ground-truth orchestration intervals for the run.
+        verification: Corpus traceability result for the captured pcap.
+    """
+    if not windows:
+        raise RuntimeError("cannot summarize a run without orchestration windows")
+    start_s = min(float(window.start_time_s) for window in windows)
+    end_s = max(float(window.end_time_s) for window in windows)
+    if end_s <= start_s:
+        raise RuntimeError("run summary requires a positive measurement interval")
+    snapshot = build_snapshot(
+        config.output_dir / "packet_telemetry.tsv",
+        now_s=end_s,
+        window_s=end_s - start_s,
+    )
+    completion_samples = completion_times(config.output_dir / "mcp_requests.jsonl")
+    if not completion_samples:
+        raise RuntimeError("run summary requires at least one successful MCP completion")
+    completion = percentile_summary(completion_samples)
+    summary = {
+        "system": config.system,
+        "link_mbps": config.link_mbps,
+        "agent_share_pct": config.agent_share_pct,
+        "burst_intensity": config.burst_intensity,
+        "duration_s": config.duration_s,
+        "seed": config.seed,
+        "measurement_start_s": start_s,
+        "measurement_end_s": end_s,
+        "generated_at": snapshot["generated_at"],
+        "classes": snapshot["classes"],
+        "tool_completion": asdict(completion),
+        "corpus": asdict(verification),
+    }
+    (config.output_dir / "run_summary.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
