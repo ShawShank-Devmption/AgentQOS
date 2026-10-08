@@ -41,10 +41,17 @@ concurrent experiments (section 7.19). Successful cells retain their run summary
 labels, target timings, config identity, coordinate, and manifest attestation. Failed cells remain
 available for diagnosis and are never silently reused.
 
-DESIGN GAP: section 10 specifies embedded timestamps plus tshark at both taps for end-to-end
-latency. The implemented live path currently exports TCP ACK RTT from a target-side tap. Until the
-two-tap method is implemented and validated, results must be labeled “TCP ACK RTT,” not one-way or
-embedded-timestamp latency.
+Per-packet transit latency is derived from two line-buffered tshark taps that share the emulation
+host clock: class-host-facing switch ports before forwarding/queueing and the target interface after
+the bottleneck. IPv4/TCP addresses, identifiers, ports, sequence state, flags, payload length, and
+frame length form a stable packet key. Matches are consumed one-to-one; forward and reverse delays
+use the appropriate timestamp order, and unmatched packets are excluded. Completed artifacts must
+declare `latency_method=matched_two_tap` and retain both telemetry files.
+
+DESIGN GAP: section 10 says “embedded timestamps.” The implementation uses capture timestamps and
+packet-identity matching so framework and iperf payloads remain unmodified. The paper must describe
+the actual method and must not claim embedded-payload timestamps. A Linux sanity run must still
+validate match coverage and clock behavior before this becomes experimental evidence.
 
 ### Workloads and ground truth
 
@@ -81,8 +88,9 @@ The low/medium/high preset definitions remain fixed in `harness/README.md`.
 
 ### Metrics and statistics
 
-Primary protection metrics are human p50/p95/p99 TCP ACK RTT and throughput. Tool-call completion
-is paired from target start/end nanoseconds; completed and rejected attempts are both retained.
+Primary protection metrics are human p50/p95/p99 matched two-tap packet transit time and throughput.
+Tool-call completion is paired from target start/end nanoseconds; completed and rejected attempts
+are both retained.
 Classification reports one-vs-rest precision and recall per class at 6, 16, and 64 packets, with
 undefined denominators left undefined. Scaling reports collision rate, accuracy, and state bytes.
 The evasion plot pairs accuracy loss with agent completion slowdown under sampled human-like think
@@ -106,11 +114,12 @@ to zero.] These values include [FRAMEWORK/CORPUS BREAKDOWN] and exclude unlabele
 
 ### Human protection and agent completion
 
-Under the balanced high-burst centerpiece at [AGENT SHARE]%, human p99 TCP ACK RTT was [OURS] ms
-([CI]) with the proposed system versus [FIFO], [DIFFSERV], [FAIRQ], and [LIMITER] ms (Fig. 2). This
-corresponds to [REDUCTION]% against the best baseline and therefore [PASSES/FAILS] the predeclared
-30% anchor. Interactive-agent median/p99 completion changed by [VALUES], and request rejection rates
-were [VALUES], exposing whether protection merely displaced harm to the agent workload.
+Under the balanced high-burst centerpiece at [AGENT SHARE]%, human p99 matched packet transit time
+was [OURS] ms ([CI]) with the proposed system versus [FIFO], [DIFFSERV], [FAIRQ], and [LIMITER] ms
+(Fig. 2). This corresponds to [REDUCTION]% against the best baseline and therefore [PASSES/FAILS]
+the predeclared 30% anchor. Interactive-agent median/p99 completion changed by [VALUES], and request
+rejection rates were [VALUES], exposing whether protection merely displaced harm to the agent
+workload.
 
 ### Cost, scaling, and evasion
 
@@ -134,9 +143,10 @@ paths and may not represent current enterprise traffic. Real-framework versions 
 shift rapidly. Encrypted traffic reduces direct semantics, making the early classifier dependent on
 bounded timing/size/handshake features. Hash collisions and asymmetric visibility can degrade flow
 state; uncertain or malformed traffic therefore follows the documented fail-open path. DSCP has
-only domain-local force unless adjacent domains honor the same policy. The current ACK-RTT metric
-does not satisfy the planned two-tap one-way method. Finally, the Stream C literature moves quickly;
-the novelty statement is bounded to the verified sources and requires a pre-submission rescan.
+only domain-local force unless adjacent domains honor the same policy. Two-tap matching covers only
+IPv4/TCP packets with stable identity fields, excludes unmatched packets, and still needs live
+match-coverage validation. Finally, the Stream C literature moves quickly; the novelty statement is
+bounded to the verified sources and requires a pre-submission rescan.
 
 ## Conclusion draft
 
@@ -156,7 +166,7 @@ behavioral inference without trusting either signal alone.
 - Add config path, config SHA-256, run-manifest hashes, seed set, and figure-input hash to the claim
   ledger.
 - Confirm all five systems have identical coordinates and at least five successful seeds.
-- Label ACK RTT accurately unless the two-tap method supersedes it.
+- Require `matched_two_tap` summaries, both telemetry files, and recorded match coverage.
 - Include framework image digests and corpus manifests for corpus-dependent claims.
 - Re-run the related-work search and check citation versions/venue status.
 - Run two complete live rehearsals and archive their manifests before any demo-reliability claim.

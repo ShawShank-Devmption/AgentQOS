@@ -73,6 +73,15 @@ def test_aggregate_rejects_summary_hash_mismatch(tmp_path: Path) -> None:
         aggregate_results(results, tmp_path / "aggregates")
 
 
+def test_aggregate_rejects_missing_ingress_telemetry(tmp_path: Path) -> None:
+    results = tmp_path / "results"
+    run_dir = _write_completed_run(results, "ours", 1, 0.010)
+    (run_dir / "ingress_packet_telemetry.tsv").unlink()
+
+    with pytest.raises(AggregateError, match="omitted ingress packet telemetry"):
+        aggregate_results(results, tmp_path / "aggregates")
+
+
 def _write_completed_run(
     root: Path,
     system: str,
@@ -105,6 +114,12 @@ def _write_completed_run(
         "seed": seed,
         "measurement_start_s": 100.0,
         "measurement_end_s": 102.0,
+        "latency_method": "matched_two_tap",
+        "latency_match": {
+            "eligible_packets": 2,
+            "matched_packets": 2,
+            "coverage": 1.0,
+        },
         "generated_at": "1970-01-01T00:01:42+00:00",
         "classes": classes,
         "tool_completion": {"count": 2, "p50_ms": 2.0, "p95_ms": 3.0, "p99_ms": 4.0},
@@ -132,11 +147,22 @@ def _write_completed_run(
         json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8"
     )
     (run_dir / "packet_telemetry.tsv").write_text(
-        f"100.5\t10.0.0.2\t10.0.0.100\t100\t{human_rtt_s}\n"
-        f"101.5\t10.0.0.2\t10.0.0.100\t100\t{human_rtt_s * 2}\n",
+        _telemetry_row(100.5, "0x10", 100, "9.0") + _telemetry_row(101.5, "0x11", 200, "9.0"),
+        encoding="utf-8",
+    )
+    (run_dir / "ingress_packet_telemetry.tsv").write_text(
+        _telemetry_row(100.5 - human_rtt_s, "0x10", 100, "")
+        + _telemetry_row(101.5 - human_rtt_s * 2, "0x11", 200, ""),
         encoding="utf-8",
     )
     return run_dir
+
+
+def _telemetry_row(timestamp_s: float, ip_id: str, sequence: int, ack_rtt: str) -> str:
+    return (
+        f"{timestamp_s}\t10.0.0.2\t10.0.0.100\t100\t{ack_rtt}\t{ip_id}"
+        f"\t6\t5000\t5201\t{sequence}\t1\t46\t0x18\n"
+    )
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:

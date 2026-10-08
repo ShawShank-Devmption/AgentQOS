@@ -56,7 +56,8 @@ permission to redistribute the trace or establish that it was successfully repla
 - “All traces downloaded”: false until an authorized CAIDA user obtains the selected dataset.
 - “Four real agent frameworks captured”: the dependency-free adapters exercise the wire contract
   but do not establish framework provenance.
-- “End-to-end latency from both taps”: current live telemetry reports TCP ACK RTT from one tap.
-  Design section 10's embedded-timestamp/two-tap measurement remains an evaluation gap.
+- “Embedded-payload timestamp latency”: the implementation instead matches packet identities across
+  two timestamped tshark taps on the same emulation host. Report the implemented method precisely;
+  do not imply that application payloads were modified.
 - “No prior work”: too broad. Use the bounded, source-qualified gap statement above and repeat the
   literature scan immediately before submission.

@@ -32,14 +32,21 @@ tuned inside an individual run.
 
 ## Metrics and statistical treatment
 
-Live per-class latency is TCP ACK RTT exported by line-buffered tshark telemetry; throughput is the
-sum of both directions' frame bytes over each sliding window. Human and agent latency use linearly
-interpolated p50/p95/p99 values. The paced 2 Mbps, 1200-byte TCP human stream remains visible to the
-same classifier while approximating an interactive video workload instead of saturating the link as
-an unconstrained bulk transfer. Tool completion time is paired directly from the target's request
-start/end nanoseconds. Classification reports one-vs-rest precision and recall for every training
-class, with undefined denominators reported as undefined rather than zero. Across seeds, means and
-two-sided 95% Student-t confidence intervals are reported.
+Live per-class transit latency matches the same IPv4/TCP packet at the five class-host-facing switch
+ports and at the target interface. Both tshark processes use the emulation host's clock. The match
+key includes addresses, IPv4 ID, protocol, TCP ports, sequence/acknowledgment numbers, payload
+length, flags, and frame length; matches are consumed one-to-one in timestamp order. Forward delay
+is target timestamp minus source-side timestamp, and reverse delay uses the opposite order.
+Unmatched packets are excluded rather than assigned an ACK RTT. Completed run summaries and
+aggregates require `latency_method=matched_two_tap` plus both telemetry artifacts.
+
+Throughput is the sum of both directions' target-tap frame bytes over each sliding window. Human and
+agent latency use linearly interpolated p50/p95/p99 values. The paced 2 Mbps, 1200-byte TCP human
+stream remains visible to the same classifier while approximating an interactive video workload
+instead of saturating the link as an unconstrained bulk transfer. Tool completion time is paired
+directly from the target's request start/end nanoseconds. Classification reports one-vs-rest
+precision and recall for every training class, with undefined denominators reported as undefined
+rather than zero. Across seeds, means and two-sided 95% Student-t confidence intervals are reported.
 
 Every successful cell writes `run_summary.json`; the enclosing manifest records its SHA-256.
 `eval.aggregate` verifies those hashes and cell coordinates, emits an audit trail and per-run rows,
@@ -62,10 +69,11 @@ mapping to run manifests, config hashes, and seeds. Figure generation never edit
 
 ## Current evidence boundary
 
-The host unit/lint evidence verifies schemas, arithmetic, locking, manifests, packet-telemetry
-aggregation, metric math, dashboard serving, and deterministic figure generation. The persistent
-executor is implemented for Linux and the four l2fwd baselines. This host evidence does not verify
-P4 compilation, Mininet forwarding, real-framework captures, the full grid, headline anchors, or
-rehearsals. Those claims require the documented Linux environment and archived raw evidence. The
-proposed-system run additionally requires the absent Dev A/Dev B `agent_aware.p4`, policy install,
-and controller lifecycle. Dry-run manifests remain planning artifacts only.
+The host unit/lint evidence verifies schemas, arithmetic, locking, manifests, two-tap identity
+matching (including both directions), metric math, dashboard serving, and deterministic figure
+generation. The persistent executor is implemented for Linux and the four l2fwd baselines. This
+host evidence does not verify clock/capture behavior in Mininet, P4 compilation, forwarding,
+real-framework captures, the full grid, headline anchors, or rehearsals. Those claims require the
+documented Linux environment and archived raw evidence. The proposed-system run additionally
+requires the absent Dev A/Dev B `agent_aware.p4`, policy install, and controller lifecycle. Dry-run
+manifests remain planning artifacts only.

@@ -30,6 +30,7 @@ from harness.capture import (
     write_labels,
 )
 from harness.topology import (
+    HOSTS,
     SWITCH_NAME,
     TARGET_NAME,
     SwitchLaunchConfig,
@@ -176,6 +177,7 @@ def run_network_storm(
     validate_runtime(config.system)
     config.output_dir.mkdir(parents=True, exist_ok=True)
     target = network.get(TARGET_NAME)
+    switch = network.get(SWITCH_NAME)
     human = network.get("h_human")
     agent_hosts = tuple(network.get(name) for name in AGENT_HOST_NAMES)
     baseline = baseline_plan(config.system, config.link_mbps, config.output_dir)
@@ -186,6 +188,7 @@ def run_network_storm(
     log_handles: list[Any] = []
     pcap_path = config.output_dir / "traffic.pcap"
     telemetry_path = config.output_dir / "packet_telemetry.tsv"
+    ingress_telemetry_path = config.output_dir / "ingress_packet_telemetry.tsv"
     snapshot_path = config.output_dir / "live_metrics.json"
     start_local = local_process_starter or _start_local_logged_process
 
@@ -207,12 +210,25 @@ def run_network_storm(
 
             telemetry, telemetry_handles = _start_packet_telemetry(
                 target,
-                f"{TARGET_NAME}-eth0",
+                (f"{TARGET_NAME}-eth0",),
                 telemetry_path,
                 config.output_dir / "packet_telemetry.log",
             )
             managed_processes.append(telemetry)
             log_handles.extend(telemetry_handles)
+
+            ingress_telemetry, ingress_handles = _start_packet_telemetry(
+                switch,
+                tuple(
+                    f"{SWITCH_NAME}-eth{host.switch_port}"
+                    for host in HOSTS
+                    if host.role in {"agent", "human"}
+                ),
+                ingress_telemetry_path,
+                config.output_dir / "ingress_packet_telemetry.log",
+            )
+            managed_processes.append(ingress_telemetry)
+            log_handles.extend(ingress_handles)
 
             producer, producer_log = start_local(
                 (
@@ -221,6 +237,8 @@ def run_network_storm(
                     "dashboard.producer",
                     "--telemetry",
                     str(telemetry_path),
+                    "--ingress-telemetry",
+                    str(ingress_telemetry_path),
                     "--snapshot",
                     str(snapshot_path),
                 ),
@@ -330,18 +348,19 @@ def _start_logged_process(host: Any, command: tuple[str, ...], log_path: Path) -
 
 def _start_packet_telemetry(
     host: Any,
-    interface: str,
+    interfaces: tuple[str, ...],
     telemetry_path: Path,
     error_path: Path,
 ) -> tuple[Any, tuple[Any, Any]]:
+    if not interfaces:
+        raise ValueError("packet telemetry requires at least one interface")
     telemetry_path.parent.mkdir(parents=True, exist_ok=True)
     telemetry_handle = telemetry_path.open("w", encoding="utf-8")
     error_handle = error_path.open("w", encoding="utf-8")
     command = (
         "tshark",
         "-l",
-        "-i",
-        interface,
+        *(argument for interface in interfaces for argument in ("-i", interface)),
         "-Y",
         "ip",
         "-T",
@@ -360,6 +379,22 @@ def _start_packet_telemetry(
         "frame.len",
         "-e",
         "tcp.analysis.ack_rtt",
+        "-e",
+        "ip.id",
+        "-e",
+        "ip.proto",
+        "-e",
+        "tcp.srcport",
+        "-e",
+        "tcp.dstport",
+        "-e",
+        "tcp.seq",
+        "-e",
+        "tcp.ack",
+        "-e",
+        "tcp.len",
+        "-e",
+        "tcp.flags",
     )
     try:
         process = host.popen(
@@ -504,9 +539,13 @@ def write_run_summary(
         raise RuntimeError("run summary requires a positive measurement interval")
     snapshot = build_snapshot(
         config.output_dir / "packet_telemetry.tsv",
+        ingress_telemetry_path=config.output_dir / "ingress_packet_telemetry.tsv",
         now_s=end_s,
         window_s=end_s - start_s,
     )
+    latency_match = snapshot["latency_match"]
+    if not isinstance(latency_match, Mapping) or latency_match.get("matched_packets") == 0:
+        raise RuntimeError("run summary requires matched two-tap latency packets")
     completion_samples = completion_times(config.output_dir / "mcp_requests.jsonl")
     if not completion_samples:
         raise RuntimeError("run summary requires at least one successful MCP completion")
@@ -522,6 +561,8 @@ def write_run_summary(
         "measurement_start_s": start_s,
         "measurement_end_s": end_s,
         "generated_at": snapshot["generated_at"],
+        "latency_method": snapshot["latency_method"],
+        "latency_match": latency_match,
         "classes": snapshot["classes"],
         "tool_completion": asdict(completion),
         "agent_attempts": agent_attempts,

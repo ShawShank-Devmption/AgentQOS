@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import time
+from collections import defaultdict, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -28,6 +29,23 @@ class LiveMetricError(ValueError):
 
 
 @dataclass(frozen=True)
+class PacketKey:
+    """Stable IPv4/TCP identity used to match a packet at two taps."""
+
+    source_ip: str
+    destination_ip: str
+    ip_id: int
+    protocol: int
+    source_port: int
+    destination_port: int
+    tcp_sequence: int
+    tcp_acknowledgment: int
+    tcp_payload_bytes: int
+    tcp_flags: int
+    frame_bytes: int
+
+
+@dataclass(frozen=True)
 class PacketTelemetry:
     """One packet row exported by the live tshark process."""
 
@@ -36,11 +54,13 @@ class PacketTelemetry:
     destination_ip: str
     frame_bytes: int
     ack_rtt_s: float | None
+    packet_key: PacketKey | None = None
 
 
 def build_snapshot(
     telemetry_path: Path,
     *,
+    ingress_telemetry_path: Path | None = None,
     now_s: float,
     window_s: float = DEFAULT_WINDOW_S,
 ) -> dict[str, object]:
@@ -48,6 +68,7 @@ def build_snapshot(
 
     Args:
         telemetry_path: Tab-separated tshark packet telemetry.
+        ingress_telemetry_path: Optional matching telemetry captured before the switch.
         now_s: Inclusive end of the aggregation window as Unix seconds.
         window_s: Positive sliding-window duration in seconds.
 
@@ -56,6 +77,9 @@ def build_snapshot(
     """
     return build_snapshot_from_packets(
         read_telemetry(telemetry_path),
+        ingress_packets=(
+            read_telemetry(ingress_telemetry_path) if ingress_telemetry_path is not None else None
+        ),
         now_s=now_s,
         window_s=window_s,
     )
@@ -64,6 +88,7 @@ def build_snapshot(
 def build_snapshot_from_packets(
     packets: Sequence[PacketTelemetry],
     *,
+    ingress_packets: Sequence[PacketTelemetry] | None = None,
     now_s: float,
     window_s: float = DEFAULT_WINDOW_S,
 ) -> dict[str, object]:
@@ -71,6 +96,7 @@ def build_snapshot_from_packets(
 
     Args:
         packets: Validated packet telemetry in capture order.
+        ingress_packets: Optional matching packets from the sender-side switch taps.
         now_s: Inclusive end of the aggregation window as Unix seconds.
         window_s: Positive sliding-window duration in seconds.
 
@@ -94,8 +120,29 @@ def build_snapshot_from_packets(
         if traffic_class is None:
             continue
         byte_counts[traffic_class] += packet.frame_bytes
-        if packet.ack_rtt_s is not None:
+        if ingress_packets is None and packet.ack_rtt_s is not None:
             latencies_ms[traffic_class].append(packet.ack_rtt_s * 1_000)
+
+    latency_method = "tcp_ack_rtt"
+    latency_match: dict[str, int | float] = {
+        "eligible_packets": 0,
+        "matched_packets": 0,
+        "coverage": 0.0,
+    }
+    if ingress_packets is not None:
+        latency_method = "matched_two_tap"
+        latencies_ms, eligible_packets, matched_packets = _matched_latencies_ms(
+            packets,
+            ingress_packets,
+            class_ips,
+            cutoff_s=cutoff_s,
+            now_s=now_s,
+        )
+        latency_match = {
+            "eligible_packets": eligible_packets,
+            "matched_packets": matched_packets,
+            "coverage": matched_packets / eligible_packets if eligible_packets else 0.0,
+        }
 
     classes: dict[str, dict[str, float]] = {}
     for traffic_class in TRAINING_LABELS:
@@ -113,6 +160,8 @@ def build_snapshot_from_packets(
         }
     return {
         "generated_at": datetime.fromtimestamp(now_s, UTC).isoformat(),
+        "latency_method": latency_method,
+        "latency_match": latency_match,
         "classes": classes,
     }
 
@@ -121,6 +170,7 @@ def write_snapshot(
     telemetry_path: Path,
     snapshot_path: Path,
     *,
+    ingress_telemetry_path: Path | None = None,
     now_s: float | None = None,
     window_s: float = DEFAULT_WINDOW_S,
 ) -> None:
@@ -129,11 +179,13 @@ def write_snapshot(
     Args:
         telemetry_path: Tab-separated tshark packet telemetry.
         snapshot_path: JSON destination read by the dashboard server.
+        ingress_telemetry_path: Optional matching telemetry captured before the switch.
         now_s: Optional deterministic Unix timestamp for tests.
         window_s: Positive sliding-window duration in seconds.
     """
     snapshot = build_snapshot(
         telemetry_path,
+        ingress_telemetry_path=ingress_telemetry_path,
         now_s=time.time() if now_s is None else now_s,
         window_s=window_s,
     )
@@ -157,6 +209,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--telemetry", type=Path, required=True)
+    parser.add_argument("--ingress-telemetry", type=Path)
     parser.add_argument("--snapshot", type=Path, required=True)
     parser.add_argument("--window-s", type=float, default=DEFAULT_WINDOW_S)
     parser.add_argument("--interval-s", type=float, default=DEFAULT_INTERVAL_S)
@@ -167,7 +220,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     try:
         while True:
-            write_snapshot(args.telemetry, args.snapshot, window_s=args.window_s)
+            write_snapshot(
+                args.telemetry,
+                args.snapshot,
+                ingress_telemetry_path=args.ingress_telemetry,
+                window_s=args.window_s,
+            )
             time.sleep(args.interval_s)
     except KeyboardInterrupt:
         LOGGER.info("live metric producer stopping")
@@ -201,8 +259,8 @@ def read_telemetry(telemetry_path: Path) -> tuple[PacketTelemetry, ...]:
             continue
         fields = line.split("\t")
         try:
-            if len(fields) != 5:
-                raise ValueError("expected five fields")
+            if len(fields) not in (5, 13):
+                raise ValueError("expected five or thirteen fields")
             timestamp_s = float(fields[0])
             source_ip = str(IPv4Address(fields[1]))
             destination_ip = str(IPv4Address(fields[2]))
@@ -213,12 +271,101 @@ def read_telemetry(telemetry_path: Path) -> tuple[PacketTelemetry, ...]:
                 raise ValueError("numeric values must be finite and non-negative")
             if frame_bytes <= 0:
                 raise ValueError("frame length must be positive")
+            packet_key = _parse_packet_key(fields, source_ip, destination_ip, frame_bytes)
         except ValueError as exc:
             raise LiveMetricError(
                 f"invalid packet telemetry on line {line_number}: {telemetry_path}"
             ) from exc
-        rows.append(PacketTelemetry(timestamp_s, source_ip, destination_ip, frame_bytes, ack_rtt_s))
+        rows.append(
+            PacketTelemetry(
+                timestamp_s,
+                source_ip,
+                destination_ip,
+                frame_bytes,
+                ack_rtt_s,
+                packet_key,
+            )
+        )
     return tuple(rows)
+
+
+def _parse_packet_key(
+    fields: list[str],
+    source_ip: str,
+    destination_ip: str,
+    frame_bytes: int,
+) -> PacketKey | None:
+    if len(fields) == 5 or not all(fields[5:]):
+        return None
+    values = tuple(int(value, 0) for value in fields[5:])
+    ip_id, protocol, source_port, destination_port, sequence, acknowledgment, length, flags = values
+    if protocol != 6:
+        return None
+    if not 0 <= ip_id <= 65_535:
+        raise ValueError("IPv4 ID is outside uint16")
+    if not 0 < source_port <= 65_535 or not 0 < destination_port <= 65_535:
+        raise ValueError("TCP port is outside uint16")
+    if any(value < 0 for value in (sequence, acknowledgment, length, flags)):
+        raise ValueError("TCP identity fields must be non-negative")
+    return PacketKey(
+        source_ip,
+        destination_ip,
+        ip_id,
+        protocol,
+        source_port,
+        destination_port,
+        sequence,
+        acknowledgment,
+        length,
+        flags,
+        frame_bytes,
+    )
+
+
+def _matched_latencies_ms(
+    target_packets: Sequence[PacketTelemetry],
+    ingress_packets: Sequence[PacketTelemetry],
+    class_ips: Mapping[str, TrafficClass],
+    *,
+    cutoff_s: float,
+    now_s: float,
+) -> tuple[dict[TrafficClass, list[float]], int, int]:
+    latencies = {traffic_class: [] for traffic_class in TRAINING_LABELS}
+    eligible_packets = 0
+    matched_packets = 0
+    ingress_by_key: dict[PacketKey, deque[float]] = defaultdict(deque)
+    for packet in sorted(ingress_packets, key=lambda item: item.timestamp_s):
+        if packet.packet_key is not None:
+            ingress_by_key[packet.packet_key].append(packet.timestamp_s)
+
+    for packet in sorted(target_packets, key=lambda item: item.timestamp_s):
+        if packet.timestamp_s < cutoff_s or packet.timestamp_s > now_s or packet.packet_key is None:
+            continue
+        source_class = class_ips.get(packet.source_ip)
+        destination_class = class_ips.get(packet.destination_ip)
+        traffic_class = source_class or destination_class
+        if traffic_class is None:
+            continue
+        eligible_packets += 1
+        candidates = ingress_by_key.get(packet.packet_key)
+        if not candidates:
+            continue
+        if source_class is not None:
+            if candidates[0] > packet.timestamp_s:
+                continue
+            ingress_time_s = candidates.popleft()
+            latency_s = packet.timestamp_s - ingress_time_s
+        else:
+            while candidates and candidates[0] < packet.timestamp_s:
+                candidates.popleft()
+            if not candidates:
+                continue
+            source_time_s = candidates.popleft()
+            latency_s = source_time_s - packet.timestamp_s
+        if math.isfinite(latency_s) and latency_s >= 0:
+            latencies[traffic_class].append(latency_s * 1_000)
+            matched_packets += 1
+    return latencies, eligible_packets, matched_packets
 
 
 def _class_ip_map() -> Mapping[str, TrafficClass]:

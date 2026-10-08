@@ -128,3 +128,21 @@ agreement. No credentials or access rights are inferred from the project's resea
 DESIGN GAP: design section 10 requires embedded timestamps and tshark at both taps, while the live
 dashboard currently derives TCP ACK RTT from target-side telemetry. All draft language now calls
 this metric TCP ACK RTT; the two-tap measurement remains implementation work before P4.2 evidence.
+
+### 2026-10-09 two-tap latency implementation
+
+Implemented timestamped packet matching between all five class-host-facing switch interfaces and
+the target interface. The extended tshark rows carry a stable IPv4/TCP identity; the producer
+matches each identity at most once, handles both traffic directions, and computes per-class
+p50/p95/p99 transit delay. Completed summaries declare `matched_two_tap`, and aggregation now
+rejects a run missing the ingress telemetry or using another latency method. ACK RTT remains in the
+target telemetry only as a diagnostic/backward-compatible field and is not a completed-run
+fallback.
+
+Fresh focused evidence: Ruff is clean and 20 dashboard/runtime/aggregate tests pass, including
+forward/reverse matching and the audited five-system timeline.
+
+DESIGN GAP: the design's “embedded timestamps” wording implies payload instrumentation. This
+implementation deliberately uses same-host capture timestamps plus packet identity so real
+framework and iperf payloads remain unchanged. The actual method is documented in the paper draft;
+Linux execution must still establish packet-match coverage and capture-clock behavior.

@@ -222,12 +222,20 @@ def test_network_storm_runs_capture_services_human_and_all_agents(tmp_path: Path
     )
 
     target_commands = network.get("h_target").commands
+    switch_commands = network.get("s1").commands
     human_commands = network.get("h_human").commands
     agent_commands = [
         command for index in range(1, 5) for command in network.get(f"h_agent{index}").commands
     ]
     assert sum(command[0] == "tshark" for command in target_commands) == 2
     assert any("tcp.analysis.ack_rtt" in command for command in target_commands)
+    assert sum(command[0] == "tshark" for command in switch_commands) == 1
+    ingress_command = next(command for command in switch_commands if command[0] == "tshark")
+    assert [
+        ingress_command[index + 1]
+        for index, argument in enumerate(ingress_command)
+        if argument == "-i"
+    ] == ["s1-eth1", "s1-eth2", "s1-eth3", "s1-eth4", "s1-eth5"]
     assert any("harness.mcp_target.server" in command for command in target_commands)
     assert any(command[:2] == ("iperf3", "-s") for command in target_commands)
     assert any(command[:2] == ("iperf3", "-c") for command in human_commands)
@@ -242,6 +250,8 @@ def test_network_storm_runs_capture_services_human_and_all_agents(tmp_path: Path
         "dashboard.producer",
         "dashboard.server",
     ]
+    producer_command = local_commands[0]
+    assert "--ingress-telemetry" in producer_command
     assert all(handle.closed for handle in local_handles)
     assert events[-2:] == ["collect", "s1:tc:run"]
     assert (config.output_dir / "orchestration.jsonl").is_file()
@@ -286,9 +296,15 @@ def test_run_summary_retains_coordinates_class_metrics_and_completion_times(
     config = _config(tmp_path)
     config.output_dir.mkdir()
     (config.output_dir / "packet_telemetry.tsv").write_text(
-        "10.0\t10.0.0.2\t10.0.0.100\t1000\t0.010\n"
-        "11.0\t10.0.0.1\t10.0.0.100\t500\t0.020\n"
-        "12.0\t10.0.0.6\t10.0.0.100\t250\t0.030\n",
+        "10.010\t10.0.0.2\t10.0.0.100\t1000\t0.900\t0x10\t6\t5000\t5201\t100\t1\t946\t0x18\n"
+        "11.020\t10.0.0.1\t10.0.0.100\t500\t0.900\t0x11\t6\t5001\t8080\t200\t1\t446\t0x18\n"
+        "12.030\t10.0.0.6\t10.0.0.100\t250\t0.900\t0x12\t6\t5002\t8080\t300\t1\t196\t0x18\n",
+        encoding="utf-8",
+    )
+    (config.output_dir / "ingress_packet_telemetry.tsv").write_text(
+        "10.000\t10.0.0.2\t10.0.0.100\t1000\t\t0x10\t6\t5000\t5201\t100\t1\t946\t0x18\n"
+        "11.000\t10.0.0.1\t10.0.0.100\t500\t\t0x11\t6\t5001\t8080\t200\t1\t446\t0x18\n"
+        "12.000\t10.0.0.6\t10.0.0.100\t250\t\t0x12\t6\t5002\t8080\t300\t1\t196\t0x18\n",
         encoding="utf-8",
     )
     (config.output_dir / "mcp_requests.jsonl").write_text(
@@ -337,6 +353,8 @@ def test_run_summary_retains_coordinates_class_metrics_and_completion_times(
     assert summary["system"] == "fifo"
     assert summary["agent_share_pct"] == 30
     assert summary["classes"]["HUMAN_INTERACTIVE"]["p99_ms"] == pytest.approx(10.0)
+    assert summary["latency_method"] == "matched_two_tap"
+    assert summary["latency_match"]["coverage"] == 1.0
     assert summary["tool_completion"]["count"] == 1
     assert summary["tool_completion"]["p99_ms"] == pytest.approx(25.0)
     assert summary["agent_attempts"]["attempted"] == 12

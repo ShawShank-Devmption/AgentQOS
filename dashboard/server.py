@@ -50,6 +50,10 @@ def read_snapshot(path: Path) -> dict[str, object]:
         datetime.fromisoformat(generated_at)
     except ValueError as exc:
         raise SnapshotError("generated_at must be an ISO-8601 timestamp") from exc
+    latency_method = raw.get("latency_method")
+    if latency_method not in {"matched_two_tap", "tcp_ack_rtt"}:
+        raise SnapshotError("dashboard snapshot has an invalid latency_method")
+    _validate_latency_match(raw.get("latency_match"))
     classes = raw.get("classes")
     if not isinstance(classes, Mapping):
         raise SnapshotError("dashboard snapshot requires classes")
@@ -66,6 +70,35 @@ def read_snapshot(path: Path) -> dict[str, object]:
             if not math.isfinite(float(value)) or float(value) < 0:
                 raise SnapshotError(f"{class_name}.{field} must be finite and non-negative")
     return dict(raw)
+
+
+def _validate_latency_match(value: object) -> None:
+    if not isinstance(value, Mapping) or set(value) != {
+        "eligible_packets",
+        "matched_packets",
+        "coverage",
+    }:
+        raise SnapshotError("dashboard snapshot has invalid latency_match fields")
+    eligible = value["eligible_packets"]
+    matched = value["matched_packets"]
+    coverage = value["coverage"]
+    if (
+        isinstance(eligible, bool)
+        or not isinstance(eligible, int)
+        or eligible < 0
+        or isinstance(matched, bool)
+        or not isinstance(matched, int)
+        or matched < 0
+        or matched > eligible
+    ):
+        raise SnapshotError("dashboard snapshot has invalid latency match counts")
+    if isinstance(coverage, bool) or not isinstance(coverage, (int, float)):
+        raise SnapshotError("dashboard snapshot has invalid latency match coverage")
+    expected = matched / eligible if eligible else 0.0
+    if not math.isfinite(float(coverage)) or not math.isclose(
+        float(coverage), expected, rel_tol=1e-12, abs_tol=1e-12
+    ):
+        raise SnapshotError("dashboard snapshot has inconsistent match coverage")
 
 
 def create_server(

@@ -157,6 +157,9 @@ def _load_artifacts(results_root: Path) -> tuple[RunArtifact, ...]:
         telemetry_path = manifest_path.with_name("packet_telemetry.tsv")
         if not telemetry_path.is_file():
             raise AggregateError(f"run omitted packet telemetry: {telemetry_path}")
+        ingress_path = manifest_path.with_name("ingress_packet_telemetry.tsv")
+        if not ingress_path.is_file():
+            raise AggregateError(f"run omitted ingress packet telemetry: {ingress_path}")
         artifacts.append(RunArtifact(manifest_path.parent, manifest, summary))
     return tuple(artifacts)
 
@@ -293,10 +296,12 @@ def _centerpiece_rows(artifacts: Sequence[RunArtifact]) -> tuple[dict[str, objec
     for system in EXPERIMENT_SYSTEMS:
         for artifact in selected[system]:
             packets = read_telemetry(artifact.run_dir / "packet_telemetry.tsv")
+            ingress_packets = read_telemetry(artifact.run_dir / "ingress_packet_telemetry.tsv")
             start_s = _number(artifact.summary["measurement_start_s"], "measurement_start_s")
             for offset_s in range(1, duration_s + 1):
                 snapshot = build_snapshot_from_packets(
                     packets,
+                    ingress_packets=ingress_packets,
                     now_s=start_s + offset_s,
                     window_s=1.0,
                 )
@@ -377,6 +382,16 @@ def _validate_coordinates(
 
 
 def _validate_summary_metrics(summary: Mapping[str, object], summary_path: Path) -> None:
+    if summary.get("latency_method") != "matched_two_tap":
+        raise AggregateError(f"run summary did not use matched two-tap latency: {summary_path}")
+    latency_match = _mapping(summary.get("latency_match"), "latency_match")
+    eligible = _number(latency_match.get("eligible_packets"), "eligible_packets")
+    matched = _number(latency_match.get("matched_packets"), "matched_packets")
+    coverage = _number(latency_match.get("coverage"), "latency_match.coverage")
+    if eligible <= 0 or matched <= 0 or matched > eligible:
+        raise AggregateError(f"invalid two-tap match counts: {summary_path}")
+    if not math.isclose(coverage, matched / eligible, rel_tol=1e-12, abs_tol=1e-12):
+        raise AggregateError(f"invalid two-tap match coverage: {summary_path}")
     classes = _mapping(summary.get("classes"), "classes")
     required_classes = {traffic_class.name for traffic_class in TRAINING_LABELS}
     if set(classes) != required_classes:
