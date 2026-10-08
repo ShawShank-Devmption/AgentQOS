@@ -155,3 +155,11 @@ and ingress telemetry files. Added a read-only `eval.preflight` gate and Make ta
 all four baseline sanity runs, and the five-config full grid. Preflight reports host, privilege,
 command, Mininet, compiled P4, task-script, integration-file, and append-only output blockers before
 the experiment creates any result directory.
+
+### 2026-10-09 anchor evidence
+
+Added `eval.anchors` to turn the balanced centerpiece timeline and Dev A's audited overhead samples
+into append-only `anchors.json`. It selects the lowest-mean-p99 baseline, records both input
+SHA-256 digests and explicit thresholds, and writes PASS/FAIL flags for both design anchors. A
+missed anchor returns status 2 after preserving the failed report. Thresholds stay command-line
+inputs because they are not part of the frozen shared contract.

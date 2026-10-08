@@ -87,6 +87,22 @@ rejected rather than silently omitted. Outputs are `run_metrics.csv`,
 the largest common high-burst agent share, requires the same two-or-more seed set for all systems,
 and averages one-second human p99 samples across seeds.
 
+## Evaluate the predeclared anchors
+
+After Dev A provides the audited `overhead.csv`, evaluate both headline targets explicitly:
+
+```bash
+make anchors AGGREGATES=results/aggregates \
+  MIN_P99_REDUCTION=0.30 MAX_OVERHEAD=0.05
+```
+
+The command averages each balanced centerpiece timeline, compares `ours` against the baseline with
+the lowest mean human p99, and compares mean full-pipeline latency with mean minimal-l2fwd latency.
+It writes `anchors.json` with both input SHA-256 digests, thresholds, measurements, and pass flags.
+The output is append-only. A missed target still writes the report and returns status 2 so CI or an
+operator cannot hide the failure. Thresholds remain explicit arguments because they are not frozen
+in `common/contracts.py`.
+
 ## Aggregate figure inputs
 
 `make figures RAW_RESULTS=<dir> FIGURES=<dir>` requires these immutable CSVs:

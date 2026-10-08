@@ -14,10 +14,13 @@ RAW_RESULTS ?= results/aggregates
 FIGURES ?= results/figures
 RESULTS ?= results
 AGGREGATES ?= results/aggregates
+ANCHOR_REPORT ?= results/aggregates/anchors.json
+MIN_P99_REDUCTION ?=
+MAX_OVERHEAD ?=
 SANITY_CONFIGS := fifo_sanity diffserv_sanity fairq_sanity app_limiter_sanity
 GRID_CONFIGS := burst_sweep_v1 fifo_burst_sweep_v1 diffserv_burst_sweep_v1 fairq_burst_sweep_v1 app_limiter_burst_sweep_v1
 
-.PHONY: lint fmt test build dev-env smoke-m1 corpus preflight experiment baseline-sanity full-grid aggregate figures review-config review-1-host
+.PHONY: lint fmt test build dev-env smoke-m1 corpus preflight experiment baseline-sanity full-grid aggregate anchors figures review-config review-1-host
 
 lint:
 	$(RUFF) check .
@@ -73,6 +76,11 @@ full-grid: build
 
 aggregate:
 	$(PYTHON) -m eval.aggregate "$(RESULTS)" "$(AGGREGATES)"
+
+anchors:
+	@test -n "$(MIN_P99_REDUCTION)" || { echo "MIN_P99_REDUCTION is required"; exit 2; }
+	@test -n "$(MAX_OVERHEAD)" || { echo "MAX_OVERHEAD is required"; exit 2; }
+	$(PYTHON) -m eval.anchors "$(AGGREGATES)/centerpiece.csv" "$(AGGREGATES)/overhead.csv" "$(ANCHOR_REPORT)" --min-p99-reduction "$(MIN_P99_REDUCTION)" --max-overhead "$(MAX_OVERHEAD)"
 
 figures:
 	$(PYTHON) -m eval.plots "$(RAW_RESULTS)" "$(FIGURES)"

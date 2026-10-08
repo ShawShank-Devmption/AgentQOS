@@ -165,6 +165,8 @@ behavioral inference without trusting either signal alone.
 - Replace every bracketed token from audited aggregate files only.
 - Add config path, config SHA-256, run-manifest hashes, seed set, and figure-input hash to the claim
   ledger.
+- Require an append-only `anchors.json` that attests the centerpiece and overhead CSV digests and
+  retains a failed outcome.
 - Confirm all five systems have identical coordinates and at least five successful seeds.
 - Require `matched_two_tap` summaries, both telemetry files, and recorded match coverage.
 - Include framework image digests and corpus manifests for corpus-dependent claims.

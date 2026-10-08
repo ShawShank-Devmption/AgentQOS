@@ -57,8 +57,9 @@ human-p99 samples across a balanced seed set.
 The headline checks compare human p99 against the best baseline and relative per-packet overhead
 against minimal l2fwd. The design targets (30% reduction and under 5% overhead) are supplied
 explicitly to `eval.metrics.evaluate_anchors` until the team approves shared constants; failures
-are printed as failures, not omitted. Interactive-agent completion times are reported alongside
-human protection to expose starvation.
+are written to a SHA-attested `anchors.json` and return a distinct nonzero status, not omitted. The
+best baseline is the non-ours system with the lowest mean p99 on the balanced centerpiece timeline.
+Interactive-agent completion times are reported alongside human protection to expose starvation.
 
 ## Figures and traceability
 

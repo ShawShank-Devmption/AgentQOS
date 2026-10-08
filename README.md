@@ -57,12 +57,17 @@ sudo make baseline-sanity
 # Only after the proposed-system integration preflight passes:
 sudo make full-grid
 make aggregate RESULTS=results AGGREGATES=results/aggregates
+# After Dev A supplies the audited overhead.csv:
+make anchors AGGREGATES=results/aggregates \
+  MIN_P99_REDUCTION=0.30 MAX_OVERHEAD=0.05
 ```
 
 `eval.aggregate` rejects incomplete runs and hash/coordinate mismatches, emits per-run metrics and
 Student-t confidence intervals, and creates the balanced five-system centerpiece timeline. The
 remaining figure inputs come from the Dev A/Dev B classification, overhead, scaling, evasion, and
-feature-importance experiments. When all six strict CSV inputs are present:
+feature-importance experiments. `eval.anchors` selects the lowest-latency baseline, attests both
+input files, writes the failed result as evidence, and returns nonzero if either predeclared target
+is missed. When all six strict CSV inputs are present:
 
 ```bash
 make figures RAW_RESULTS=results/aggregates FIGURES=results/figures
