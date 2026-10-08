@@ -37,7 +37,10 @@ def test_storm_plan_starts_services_then_human_then_agent_burst(tmp_path: Path) 
         "agent-storm",
     ]
     assert "harness.mcp_target.server" in plan.phases[0].commands[0]
-    assert plan.phases[1].commands[0][0] == "iperf3"
+    human_command = plan.phases[1].commands[0]
+    assert human_command[0] == "iperf3"
+    assert human_command[human_command.index("-b") + 1] == "2M"
+    assert human_command[human_command.index("-l") + 1] == "1200"
     assert [command[2] for command in plan.phases[2].commands] == [
         "harness.agents.browser_use",
         "harness.agents.playwright_agent",
