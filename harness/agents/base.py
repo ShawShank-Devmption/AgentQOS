@@ -224,6 +224,7 @@ def runner_main(source_framework: str, argv: Sequence[str] | None = None) -> int
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--repetitions", type=int, default=1)
     parser.add_argument("--orchestration-log", type=Path, required=True)
+    parser.add_argument("--result-log", type=Path, required=True)
     args = parser.parse_args(argv)
     label = (
         TrafficClass.AGENT_INTERACTIVE
@@ -245,7 +246,8 @@ def runner_main(source_framework: str, argv: Sequence[str] | None = None) -> int
             source_framework,
         )
         write_capture_window(record.window, args.orchestration_log)
-    except (FileNotFoundError, TypeError, ValueError) as exc:
+        _write_runner_result(record, args.result_log)
+    except (FileNotFoundError, OSError, TypeError, ValueError) as exc:
         LOGGER.error("%s runner configuration failed: %s", source_framework, exc)
         return 1
     LOGGER.info(
@@ -254,7 +256,26 @@ def runner_main(source_framework: str, argv: Sequence[str] | None = None) -> int
         record.completed,
         record.failed,
     )
-    return int(record.failed != 0)
+    return 0
+
+
+def _write_runner_result(record: RunnerRecord, result_path: Path) -> None:
+    result = {
+        "source_framework": record.window.source_framework,
+        "source_ip": str(record.window.source_ip),
+        "label": record.window.label.value,
+        "start_time_s": str(record.window.start_time_s),
+        "end_time_s": str(record.window.end_time_s),
+        "completed": record.completed,
+        "failed": record.failed,
+    }
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = result_path.with_suffix(f"{result_path.suffix}.tmp")
+    temporary_path.write_text(
+        json.dumps(result, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    temporary_path.replace(result_path)
 
 
 def _execute_task(

@@ -99,6 +99,9 @@ def aggregate_results(results_root: Path, output_dir: Path) -> tuple[Path, ...]:
             "class",
             *CLASS_METRICS,
             "tool_completion_p99_ms",
+            "agent_attempted_requests",
+            "agent_failed_requests",
+            "agent_failure_rate",
             "corpus_verification_rate",
         ),
         run_rows,
@@ -165,7 +168,12 @@ def _run_metric_rows(artifacts: Sequence[RunArtifact]) -> tuple[dict[str, object
         summary = artifact.summary
         classes = _mapping(summary["classes"], "classes")
         completion = _mapping(summary["tool_completion"], "tool_completion")
+        attempts = _mapping(summary["agent_attempts"], "agent_attempts")
         corpus = _mapping(summary["corpus"], "corpus")
+        attempted = _number(attempts["attempted"], "agent_attempts.attempted")
+        failed = _number(attempts["failed"], "agent_attempts.failed")
+        if attempted <= 0 or failed > attempted:
+            raise AggregateError("agent attempt counts are inconsistent")
         for traffic_class in TRAINING_LABELS:
             class_metrics = _mapping(classes[traffic_class.name], traffic_class.name)
             rows.append(
@@ -178,6 +186,9 @@ def _run_metric_rows(artifacts: Sequence[RunArtifact]) -> tuple[dict[str, object
                     "class": traffic_class.name,
                     **{metric: _number(class_metrics[metric], metric) for metric in CLASS_METRICS},
                     "tool_completion_p99_ms": _number(completion["p99_ms"], "p99_ms"),
+                    "agent_attempted_requests": attempted,
+                    "agent_failed_requests": failed,
+                    "agent_failure_rate": failed / attempted,
                     "corpus_verification_rate": _number(
                         corpus["verification_rate"], "verification_rate"
                     ),
@@ -207,6 +218,15 @@ def _confidence_rows(run_rows: Sequence[Mapping[str, object]]) -> tuple[dict[str
                     "tool_completion_p99_ms",
                 )
             ].append(float(row["tool_completion_p99_ms"]))
+            samples[
+                (
+                    str(row["system"]),
+                    int(row["agent_share_pct"]),
+                    str(row["burst_intensity"]),
+                    "ALL_AGENTS",
+                    "agent_failure_rate",
+                )
+            ].append(float(row["agent_failure_rate"]))
     rows: list[dict[str, object]] = []
     for (system, share, burst, class_name, metric), values in sorted(samples.items()):
         if len(values) < 2:
@@ -368,8 +388,14 @@ def _validate_summary_metrics(summary: Mapping[str, object], summary_path: Path)
         for metric in CLASS_METRICS:
             _number(metrics[metric], metric)
     completion = _mapping(summary.get("tool_completion"), "tool_completion")
+    attempts = _mapping(summary.get("agent_attempts"), "agent_attempts")
     corpus = _mapping(summary.get("corpus"), "corpus")
     _number(completion.get("p99_ms"), "tool_completion.p99_ms")
+    attempted = _number(attempts.get("attempted"), "agent_attempts.attempted")
+    completed = _number(attempts.get("completed"), "agent_attempts.completed")
+    failed = _number(attempts.get("failed"), "agent_attempts.failed")
+    if attempted <= 0 or completed + failed != attempted:
+        raise AggregateError(f"inconsistent agent attempt counts: {summary_path}")
     verification_rate = _number(corpus.get("verification_rate"), "verification_rate")
     if verification_rate > 1:
         raise AggregateError(f"verification_rate exceeds one: {summary_path}")

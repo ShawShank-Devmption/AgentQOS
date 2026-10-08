@@ -302,6 +302,24 @@ def test_run_summary_retains_coordinates_class_metrics_and_completion_times(
         + "\n",
         encoding="utf-8",
     )
+    result_specs = (
+        ("browser_use", "browser-use", 3, 0),
+        ("playwright_agent", "playwright-agent", 3, 0),
+        ("autogen", "autogen", 2, 1),
+        ("claude_mcp", "claude-mcp", 1, 2),
+    )
+    (config.output_dir / "agent_results").mkdir()
+    for filename, framework, completed, failed in result_specs:
+        (config.output_dir / "agent_results" / f"{filename}.json").write_text(
+            json.dumps(
+                {
+                    "source_framework": framework,
+                    "completed": completed,
+                    "failed": failed,
+                }
+            ),
+            encoding="utf-8",
+        )
     windows = (
         CaptureWindow(
             IPv4Address("10.0.0.2"),
@@ -321,4 +339,7 @@ def test_run_summary_retains_coordinates_class_metrics_and_completion_times(
     assert summary["classes"]["HUMAN_INTERACTIVE"]["p99_ms"] == pytest.approx(10.0)
     assert summary["tool_completion"]["count"] == 1
     assert summary["tool_completion"]["p99_ms"] == pytest.approx(25.0)
+    assert summary["agent_attempts"]["attempted"] == 12
+    assert summary["agent_attempts"]["completed"] == 9
+    assert summary["agent_attempts"]["failed"] == 3
     assert summary["corpus"]["verification_rate"] == 1.0

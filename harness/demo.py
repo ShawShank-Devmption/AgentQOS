@@ -172,6 +172,8 @@ def build_storm_plan(config: StormConfig) -> StormPlan:
                 str(repetitions),
                 "--orchestration-log",
                 str(orchestration_log),
+                "--result-log",
+                str(config.output_dir / "agent_results" / f"{module.rsplit('.', 1)[-1]}.json"),
             )
             for index, module in enumerate(AGENT_MODULES)
         ),

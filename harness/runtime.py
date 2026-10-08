@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import asdict
 from decimal import Decimal
@@ -47,6 +47,12 @@ ArtifactCollector = Callable[["StormConfig"], None]
 LocalProcessStarter = Callable[[tuple[str, ...], Path], tuple[Any, Any]]
 LOGGER = logging.getLogger(__name__)
 AGENT_HOST_NAMES = ("h_agent1", "h_agent2", "h_agent3", "h_agent4")
+AGENT_RESULT_FILES = {
+    "browser_use.json": "browser-use",
+    "playwright_agent.json": "playwright-agent",
+    "autogen.json": "autogen",
+    "claude_mcp.json": "claude-mcp",
+}
 
 
 class BaselineSession(AbstractContextManager["BaselineSession"]):
@@ -505,6 +511,7 @@ def write_run_summary(
     if not completion_samples:
         raise RuntimeError("run summary requires at least one successful MCP completion")
     completion = percentile_summary(completion_samples)
+    agent_attempts = _read_agent_attempts(config.output_dir / "agent_results")
     summary = {
         "system": config.system,
         "link_mbps": config.link_mbps,
@@ -517,12 +524,51 @@ def write_run_summary(
         "generated_at": snapshot["generated_at"],
         "classes": snapshot["classes"],
         "tool_completion": asdict(completion),
+        "agent_attempts": agent_attempts,
         "corpus": asdict(verification),
     }
     (config.output_dir / "run_summary.json").write_text(
         json.dumps(summary, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+
+def _read_agent_attempts(results_dir: Path) -> dict[str, object]:
+    frameworks: dict[str, dict[str, int]] = {}
+    completed_total = 0
+    failed_total = 0
+    for filename, expected_framework in AGENT_RESULT_FILES.items():
+        path = results_dir / filename
+        if not path.is_file():
+            raise RuntimeError(f"agent result is missing: {path}")
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"could not parse agent result: {path}") from exc
+        if not isinstance(raw, Mapping) or raw.get("source_framework") != expected_framework:
+            raise RuntimeError(f"agent result has invalid framework identity: {path}")
+        completed = raw.get("completed")
+        failed = raw.get("failed")
+        if (
+            isinstance(completed, bool)
+            or not isinstance(completed, int)
+            or completed < 0
+            or isinstance(failed, bool)
+            or not isinstance(failed, int)
+            or failed < 0
+        ):
+            raise RuntimeError(f"agent result has invalid attempt counts: {path}")
+        if completed + failed == 0:
+            raise RuntimeError(f"agent result contains no attempts: {path}")
+        frameworks[expected_framework] = {"completed": completed, "failed": failed}
+        completed_total += completed
+        failed_total += failed
+    return {
+        "attempted": completed_total + failed_total,
+        "completed": completed_total,
+        "failed": failed_total,
+        "frameworks": frameworks,
+    }
 
 
 def _human_source_ip() -> IPv4Address:

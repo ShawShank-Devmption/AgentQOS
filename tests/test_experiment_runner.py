@@ -217,6 +217,7 @@ def _write_run_summary(path: Path, run: RunSpec) -> None:
                     "AGENT_BULK": {},
                 },
                 "tool_completion": {},
+                "agent_attempts": {},
                 "corpus": {},
             }
         ),

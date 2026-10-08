@@ -2,13 +2,15 @@
 
 import json
 import threading
+from decimal import Decimal
 from ipaddress import IPv4Address
 from pathlib import Path
 
 import pytest
 
 from common.contracts import TrafficClass
-from harness.agents.base import RunnerConfig, load_tasks, run_agent
+from harness.agents.base import RunnerConfig, RunnerRecord, load_tasks, run_agent, runner_main
+from harness.capture import CaptureWindow
 
 
 def _write_tasks(path: Path, count: int = 5) -> None:
@@ -117,3 +119,50 @@ def test_runner_repeats_script_to_sustain_an_experiment_window(tmp_path: Path) -
 
     assert record.completed == 6
     assert record.failed == 0
+
+
+def test_runner_cli_records_request_failures_without_failing_the_experiment_process(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    task_script = tmp_path / "tasks.json"
+    _write_tasks(task_script, count=1)
+    result_log = tmp_path / "result.json"
+    record = RunnerRecord(
+        window=CaptureWindow(
+            IPv4Address("10.0.0.1"),
+            Decimal("10"),
+            Decimal("11"),
+            TrafficClass.AGENT_INTERACTIVE,
+            "fixture",
+        ),
+        completed=3,
+        failed=2,
+    )
+    monkeypatch.setattr("harness.agents.base.run_agent", lambda config, framework: record)
+
+    return_code = runner_main(
+        "fixture",
+        [
+            "--target-url",
+            "http://10.0.0.100:8080/mcp",
+            "--task-script",
+            str(task_script),
+            "--source-ip",
+            "10.0.0.1",
+            "--label",
+            "agent-interactive",
+            "--seed",
+            "1",
+            "--orchestration-log",
+            str(tmp_path / "orchestration.jsonl"),
+            "--result-log",
+            str(result_log),
+        ],
+    )
+
+    assert return_code == 0
+    result = json.loads(result_log.read_text(encoding="utf-8"))
+    assert result["completed"] == 3
+    assert result["failed"] == 2
+    assert result["source_framework"] == "fixture"

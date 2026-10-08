@@ -452,6 +452,8 @@ def _validate_run_summary(run: RunSpec) -> str:
         raise RuntimeError("run_summary.json has invalid class coverage")
     if not isinstance(raw.get("tool_completion"), Mapping):
         raise RuntimeError("run_summary.json requires tool_completion metrics")
+    if not isinstance(raw.get("agent_attempts"), Mapping):
+        raise RuntimeError("run_summary.json requires agent_attempts metrics")
     if not isinstance(raw.get("corpus"), Mapping):
         raise RuntimeError("run_summary.json requires corpus metrics")
     return hashlib.sha256(encoded).hexdigest()

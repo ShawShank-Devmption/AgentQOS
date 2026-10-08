@@ -108,6 +108,7 @@ def _write_completed_run(
         "generated_at": "1970-01-01T00:01:42+00:00",
         "classes": classes,
         "tool_completion": {"count": 2, "p50_ms": 2.0, "p95_ms": 3.0, "p99_ms": 4.0},
+        "agent_attempts": {"attempted": 10, "completed": 8, "failed": 2},
         "corpus": {"verification_rate": 1.0},
     }
     summary_path = run_dir / "run_summary.json"
