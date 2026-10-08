@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "provider": "MAWI",
+  "trace_id": "200601011400",
+  "samplepoint": "B",
+  "source_page": "https://mawi.wide.ad.jp/mawi/samplepoint-B/2006/200601011400.html",
+  "source_url": "https://mawi.nezu.wide.ad.jp/mawi/samplepoint-B/2006/200601011400.dump.gz",
+  "terms_url": "https://mawi.wide.ad.jp/mawi/",
+  "faq_url": "https://mawi.wide.ad.jp/mawi/faq.html",
+  "acquired_at_utc": "2026-10-08T20:27:13Z",
+  "source_reported_start": "2006-01-01 14:00:00 (timezone not declared on source page)",
+  "source_reported_end": "2006-01-01 14:15:00 (timezone not declared on source page)",
+  "compressed_object": {
+    "storage_name": "corpus/mawi/200601011400.dump.gz",
+    "bytes": 193177875,
+    "sha256": "c3a4d0459c3d44570d33e67aa4d8533e3695a1eef1aaa4b443af4f23e2368737"
+  },
+  "replay_object": {
+    "storage_name": "corpus/mawi/200601011400.dump",
+    "format": "pcap, Ethernet, 96-byte capture length",
+    "bytes": 466955908,
+    "sha256": "6d0925f42db3a296ba84976e908f256f14efd39db6ae318f58d8e343bcabf199",
+    "preprocessing": "gzip -dk 200601011400.dump.gz"
+  },
+  "replay_multiplier": 1.0,
+  "anonymization": "Provider-scrambled IP addresses; see MAWI archive and FAQ",
+  "use_restriction": "Research use only; privacy-invasive activity prohibited",
+  "redistribution": "Raw objects are ignored local corpus inputs and are not committed"
+}

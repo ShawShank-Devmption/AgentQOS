@@ -110,3 +110,21 @@ framework credentials or trace corpus are present, and Dev A/Dev B have not supp
 `p4src/agent_aware.p4`, the compiled JSON, policy installation, or controller lifecycle. Therefore
 baseline/P4 execution, real corpus capture, 375-cell results, anchor outcomes, and two rehearsals
 remain evidence tasks, not completed claims.
+
+## 2026-10-09 - Primary-source audit and paper evidence boundary
+
+Completed the Dev C P1.3 source audit for NetMCP/SONAR, arXiv:2607.16066, DiffServ/ECN RFCs,
+fair queueing, RED, FQ-CoDel, and the MAWI/CAIDA access rules. The fair-queueing DOI in working notes
+was corrected to `10.1145/75246.75248`. The paper draft now contains explicit result placeholders,
+an honest anchor-failure branch, and an evidence checklist so host tests cannot be presented as
+experimental results.
+
+Selected public MAWI samplepoint-B trace `200601011400` as a bounded human-replay input: the
+provider reports a 15-minute trace and 184.23 MB compressed. The raw object is stored only under the
+ignored local corpus directory; its provenance and digest are committed separately. CAIDA remains
+an external access prerequisite because passive traces require an authorized user and accepted
+agreement. No credentials or access rights are inferred from the project's research purpose.
+
+DESIGN GAP: design section 10 requires embedded timestamps and tshark at both taps, while the live
+dashboard currently derives TCP ACK RTT from target-side telemetry. All draft language now calls
+this metric TCP ACK RTT; the two-tap measurement remains implementation work before P4.2 evidence.

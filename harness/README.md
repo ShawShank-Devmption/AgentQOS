@@ -61,3 +61,17 @@ be logged in `docs/notebook.md`; do not tune it inside an individual run.
 
 The repository ignores pcaps and result directories. Store approved corpus objects in the team's
 access-controlled LFS/external storage and keep only manifests and hashes in Git.
+
+### Acquired MAWI input
+
+The public samplepoint-B trace `200601011400` is available on this workstation at
+`harness/human/corpus/mawi/200601011400.dump` for timing-faithful replay. The ignored local pcap is
+466,955,908 bytes with SHA-256
+`6d0925f42db3a296ba84976e908f256f14efd39db6ae318f58d8e343bcabf199`. Its committed provenance,
+compressed-object digest, provider terms, and preprocessing record are in
+`harness/human/manifests/mawi-200601011400.json`.
+
+This establishes one MAWI input, not the complete human corpus. It has not been replayed on the
+macOS host because tcpreplay and the Linux Mininet topology are unavailable. CAIDA acquisition
+still requires an authorized project member to accept the applicable agreement. Consented browsing
+still requires a participant and a recorded retention/deletion date.
