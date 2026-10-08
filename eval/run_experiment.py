@@ -271,7 +271,7 @@ def execute_run(
         RuntimeError: If setup, workload, or teardown fails.
     """
     run.output_dir.mkdir(parents=True, exist_ok=False)
-    plan = baseline_plan(run.system, run.link_mbps)
+    plan = baseline_plan(run.system, run.link_mbps, run.output_dir)
     workload = _workload_command(run)
     manifest: dict[str, object] = {
         **_run_values(run),

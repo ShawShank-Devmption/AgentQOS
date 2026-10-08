@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from harness.demo import StormConfig, build_storm_plan, main, write_storm_plan
 
 
@@ -80,11 +82,23 @@ def test_storm_plan_manifest_is_deterministic(tmp_path: Path) -> None:
     assert json.loads(first)["burst_intensity"] == "high"
 
 
-def test_execute_mode_fails_instead_of_reporting_a_plan_as_complete(tmp_path: Path) -> None:
+def test_execute_mode_invokes_runtime_with_explicit_p4_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     config = _config(tmp_path)
+    p4_json = tmp_path / "l2fwd.json"
+    p4_json.write_text("{}", encoding="utf-8")
+    calls: list[tuple[StormConfig, Path]] = []
+    monkeypatch.setattr(
+        "harness.demo.execute_storm",
+        lambda runtime_config, runtime_p4_json: calls.append((runtime_config, runtime_p4_json)),
+        raising=False,
+    )
 
-    assert main(_arguments(config, "--execute")) == 1
-    assert not (config.output_dir / "storm_plan.json").exists()
+    assert main([*_arguments(config, "--execute"), "--p4-json", str(p4_json)]) == 0
+    assert calls == [(config, p4_json)]
+    assert (config.output_dir / "storm_plan.json").is_file()
 
 
 def test_plan_only_mode_is_explicit(tmp_path: Path) -> None:

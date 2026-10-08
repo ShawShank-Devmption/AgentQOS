@@ -172,3 +172,14 @@ def test_fairq_uses_a_flow_hash_queue_below_the_shaper() -> None:
         "perturb",
         "10",
     )
+
+
+def test_app_limiter_plan_runs_nginx_inside_the_target_namespace(tmp_path: Path) -> None:
+    plan = baseline_plan("app_limiter", link_mbps=20, output_dir=tmp_path)
+    setup = plan.setup_commands[0]
+
+    assert setup[0] == "nginx"
+    assert setup[setup.index("-p") + 1] == str(tmp_path / "nginx")
+    assert setup[setup.index("-g") + 1] == "daemon off;"
+    assert "docker" not in setup
+    assert plan.teardown_commands[0][0] == "nginx"

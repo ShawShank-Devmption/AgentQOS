@@ -220,6 +220,19 @@ def require_live_executor() -> None:
     )
 
 
+def execute_storm(config: StormConfig, p4_json: Path) -> None:
+    """Execute one storm through the persistent Linux topology.
+
+    Args:
+        config: Validated storm coordinates.
+        p4_json: Compiled switch program selected for this system.
+    """
+    del config
+    if not p4_json.is_file():
+        raise FileNotFoundError(p4_json)
+    require_live_executor()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Validate and materialize one storm plan for Linux orchestration.
 
@@ -240,6 +253,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--duration-s", type=int, required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--p4-json", type=Path)
     parser.add_argument(
         "--task-script",
         type=Path,
@@ -258,10 +272,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=args.output_dir,
             task_script=args.task_script,
         )
-        if args.execute:
-            require_live_executor()
         output_path = args.output_dir / "storm_plan.json"
         write_storm_plan(build_storm_plan(config), output_path)
+        if args.execute:
+            default_p4_json = Path(
+                "build/agent_aware.json" if config.system == "ours" else "build/l2fwd.json"
+            )
+            execute_storm(config, args.p4_json or default_p4_json)
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         LOGGER.error("storm plan is invalid: %s", exc)
         return 1

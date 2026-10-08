@@ -1,6 +1,7 @@
 """Shared immutable command plans for the four evaluation baselines."""
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from common.contracts import EXPERIMENT_SYSTEMS
 
@@ -14,12 +15,17 @@ class BaselinePlan:
     teardown_commands: tuple[tuple[str, ...], ...]
 
 
-def baseline_plan(system: str, link_mbps: int) -> BaselinePlan:
+def baseline_plan(
+    system: str,
+    link_mbps: int,
+    output_dir: Path = Path("/tmp/agentqos"),
+) -> BaselinePlan:
     """Build the lifecycle command plan for one frozen system name.
 
     Args:
         system: One value from `common.contracts.EXPERIMENT_SYSTEMS`.
         link_mbps: Configured bottleneck rate used by applicable baselines.
+        output_dir: Run-owned directory for baseline process state.
 
     Returns:
         Deterministic setup and teardown commands.
@@ -39,4 +45,6 @@ def baseline_plan(system: str, link_mbps: int) -> BaselinePlan:
         from eval.baselines.fairq import plan
     else:
         from eval.baselines.app_limiter import plan
+
+        return plan(link_mbps, output_dir)
     return plan(link_mbps)
