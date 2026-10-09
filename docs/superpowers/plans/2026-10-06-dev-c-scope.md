@@ -50,12 +50,12 @@ tasks P1.5, P2.5, P2.6, P3.4, P3.5, P3.8, P3.12, P3.15, P4.1, P4.2, P4.8, P5.3, 
 - Consumes: `topology_manifest(link_mbps: int)`, host MACs/ports, compiled BMv2 JSON path.
 - Produces: `SwitchLaunchConfig`, `forwarding_commands()`, `run_smoke()`, and a CLI entry point.
 
-- [ ] Add failing tests for deterministic forwarding commands, launch validation, cleanup on an
+- [x] Add failing tests for deterministic forwarding commands, launch validation, cleanup on an
   injected command failure, and an unsupported-host diagnostic.
-- [ ] Implement a Linux-only BMv2/Mininet lifecycle, table installation, ping/iperf smoke checks,
+- [x] Implement a Linux-only BMv2/Mininet lifecycle, table installation, ping/iperf smoke checks,
   and guaranteed cleanup.
-- [ ] Run `pytest tests/test_topology.py -q`, then the complete test suite and lint.
-- [ ] Add `make smoke-m1` without representing it as host-safe.
+- [x] Run `pytest tests/test_topology.py -q`, then the complete test suite and lint.
+- [x] Add `make smoke-m1` without representing it as host-safe.
 
 ### Task 2: Instrumented MCP Target and Runner Contract (P2.5)
 
@@ -72,10 +72,10 @@ tasks P1.5, P2.5, P2.6, P3.4, P3.5, P3.8, P3.12, P3.15, P4.1, P4.2, P4.8, P5.3, 
 - Produces: deterministic `search`, `fetch`, and `compute` responses plus JSONL request logs and
   orchestration windows consumable by `harness.capture.CaptureWindow`.
 
-- [ ] Add failing tests for each tool, invalid JSON-RPC, deterministic seeded tasks, parallelism,
+- [x] Add failing tests for each tool, invalid JSON-RPC, deterministic seeded tasks, parallelism,
   think time, and request-log timestamps.
-- [ ] Implement the standard-library HTTP target and runner protocol with fail-fast validation.
-- [ ] Add container/runtime documentation and run focused tests, suite, and lint.
+- [x] Implement the standard-library HTTP target and runner protocol with fail-fast validation.
+- [x] Add container/runtime documentation and run focused tests, suite, and lint.
 
 ### Task 3: Four Framework Adapters and Human Replay (P3.4, P3.5, P3.8)
 
@@ -95,11 +95,11 @@ tasks P1.5, P2.5, P2.6, P3.4, P3.5, P3.8, P3.12, P3.15, P4.1, P4.2, P4.8, P5.3, 
 - Produces: four source-framework identifiers, JSONL orchestration logs, replay commands, and
   verified `labels.csv` rows in design section 4.4 order.
 
-- [ ] Add failing tests for four adapters, deterministic task order, safe tcpreplay commands,
+- [x] Add failing tests for four adapters, deterministic task order, safe tcpreplay commands,
   orchestration-log parsing, reverse packets, ambiguous windows, and verification-rate reporting.
-- [ ] Implement thin adapters, replay orchestration, log-to-window parsing, and corpus statistics.
-- [ ] Document consent/anonymization, MAWI/CAIDA terms, and the low/med/high burst presets.
-- [ ] Run focused tests, suite, and lint.
+- [x] Implement thin adapters, replay orchestration, log-to-window parsing, and corpus statistics.
+- [x] Document consent/anonymization, MAWI/CAIDA terms, and the low/med/high burst presets.
+- [x] Run focused tests, suite, and lint.
 
 ### Task 4: Baseline Definitions and Run Matrix (P2.6, P4.1)
 
@@ -118,10 +118,10 @@ tasks P1.5, P2.5, P2.6, P3.4, P3.5, P3.8, P3.12, P3.15, P4.1, P4.2, P4.8, P5.3, 
 - Produces: `RunSpec`, deterministic SHA-256 config hashes, exclusive host lock, append-only run
   directories, manifests, and baseline lifecycle commands.
 
-- [ ] Add failing tests for full grid expansion, stable hashes, exclusive locks, append-only paths,
+- [x] Add failing tests for full grid expansion, stable hashes, exclusive locks, append-only paths,
   failure manifests, and each baseline command plan.
-- [ ] Implement baseline strategies and the runner with injected command execution for host tests.
-- [ ] Add a five-seed full-grid config and run focused tests, suite, and lint.
+- [x] Implement baseline strategies and the runner with injected command execution for host tests.
+- [x] Add a five-seed full-grid config and run focused tests, suite, and lint.
 
 ### Task 5: Metrics and Confidence Intervals (P3.12, P4.2)
 
@@ -134,10 +134,10 @@ tasks P1.5, P2.5, P2.6, P3.4, P3.5, P3.8, P3.12, P3.15, P4.1, P4.2, P4.8, P5.3, 
 - Produces: p50/p95/p99, completion times, per-class precision/recall, means, 95% t confidence
   intervals, and explicit anchor-check results.
 
-- [ ] Add hand-calculated failing tests for percentiles, paired completion times, confusion counts,
+- [x] Add hand-calculated failing tests for percentiles, paired completion times, confusion counts,
   absent classes, confidence intervals, p99 reduction, and overhead assertions.
-- [ ] Implement pure metric functions plus strict CSV/JSONL readers.
-- [ ] Run focused tests, suite, and lint.
+- [x] Implement pure metric functions plus strict CSV/JSONL readers.
+- [x] Run focused tests, suite, and lint.
 
 ### Task 6: Storm Scenario and Dashboard (P3.15)
 
@@ -153,10 +153,10 @@ tasks P1.5, P2.5, P2.6, P3.4, P3.5, P3.8, P3.12, P3.15, P4.1, P4.2, P4.8, P5.3, 
 - Produces: a seeded human-plus-agent storm command plan and a read-only live HTTP dashboard with
   per-class throughput and p50/p95/p99.
 
-- [ ] Add failing tests for storm ordering, system on/off selection, snapshot validation, and HTTP
+- [x] Add failing tests for storm ordering, system on/off selection, snapshot validation, and HTTP
   JSON/HTML responses.
-- [ ] Implement orchestration and a standard-library dashboard server with no hidden state changes.
-- [ ] Run focused tests, suite, and lint.
+- [x] Implement orchestration and a standard-library dashboard server with no hidden state changes.
+- [x] Run focused tests, suite, and lint.
 
 ### Task 7: Deterministic Figures and Evaluation Documentation (P4.8, P5.3, P5.5)
 
@@ -173,10 +173,10 @@ tasks P1.5, P2.5, P2.6, P3.4, P3.5, P3.8, P3.12, P3.15, P4.1, P4.2, P4.8, P5.3, 
 - Produces: all planned paper figures with stable names and metadata plus exact reproduction and
   two-rehearsal checklists.
 
-- [ ] Add failing tests for deterministic ordering, required columns, stable filenames, and no raw
+- [x] Add failing tests for deterministic ordering, required columns, stable filenames, and no raw
   input mutation.
-- [ ] Implement plotting, `make corpus`, `make experiment`, `make figures`, and documentation.
-- [ ] Run focused tests, suite, lint, and all host-safe validation targets.
+- [x] Implement plotting, `make corpus`, `make experiment`, `make figures`, and documentation.
+- [x] Run focused tests, suite, lint, and all host-safe validation targets.
 
 ### Task 8: Final Integration Evidence
 
@@ -188,7 +188,7 @@ tasks P1.5, P2.5, P2.6, P3.4, P3.5, P3.8, P3.12, P3.15, P4.1, P4.2, P4.8, P5.3, 
 - Consumes: all prior task outputs.
 - Produces: a truthful host verification record and a Linux/real-corpus execution checklist.
 
-- [ ] Run `make lint`, `make test`, config validation, and deterministic dry-run commands.
+- [x] Run `make lint`, `make test`, config validation, and deterministic dry-run commands.
 - [ ] Run Linux M1/corpus/evaluation steps if the required VM and external data are available.
-- [ ] Record verified evidence separately from unexecuted external-runtime work.
-- [ ] Perform a final code review and fix all important findings with regression tests.
+- [x] Record verified evidence separately from unexecuted external-runtime work.
+- [x] Perform a final code review and fix all important findings with regression tests.

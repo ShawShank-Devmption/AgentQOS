@@ -3,6 +3,20 @@
 The demo claim is valid only after two complete Linux rehearsals. Copy this checklist for each
 rehearsal and attach the config hash, seed, logs, pcap hashes, and dashboard recording.
 
+Use `docs/agent_aware_networking_demo.pptx` as the presentation deck. Slides 1–6 establish the
+problem, architecture, classes, pipeline, and experiment matrix. On slide 7, switch to the live
+dashboard for the OFF/ON comparison. Return to slides 8–10 for the evidence chain, current status,
+and readiness gate. The deck deliberately contains no experimental result values until audited
+aggregate artifacts and `anchors.json` exist.
+
+Suggested eight-minute pacing:
+
+- 0:00–1:15 — problem and claim-safe contribution (slides 1–2);
+- 1:15–3:15 — architecture, classes, and fail-open pipeline (slides 3–5);
+- 3:15–4:15 — controlled 375-cell evaluation (slide 6);
+- 4:15–6:30 — live OFF/ON scenario and dashboard (slide 7); and
+- 6:30–8:00 — evidence chain, status, and rehearsal gate (slides 8–10).
+
 Run from the documented idle Linux VM:
 
 ```bash

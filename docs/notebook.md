@@ -182,6 +182,21 @@ Closed a final evidence-integrity hole: complete manifests now store SHA-256 for
 ingress packet telemetry in addition to the run summary. Aggregation verifies all three digests
 before using a cell and includes them in `audit.csv`, so editing telemetry after completion cannot
 silently change the centerpiece timeline.
+
+### 2026-10-09 presentation artifact
+
+Added the P5.5 presentation at `docs/agent_aware_networking_demo.pptx`. The ten-slide editable
+deck covers the congestion problem, architecture, frozen classes, fail-open packet pipeline,
+375-cell experiment matrix, centerpiece demo storyboard, evidence chain, current status, and the
+two-rehearsal gate. Its native chart reports configured cell counts only. No unexecuted latency,
+accuracy, overhead, or anchor outcome appears as a result. The rehearsal runbook now maps the deck
+to an eight-minute speaking sequence and live-dashboard handoff.
+
+Host verification covers PPTX package integrity, ten-slide structure, editable chart data, font
+use, layout geometry, full-size slide renders, and first-party re-import. The live evidence boundary
+remains unchanged: two successful Linux rehearsals cannot be completed on this Darwin host, and the
+deck must retain its pending status until their artifacts exist.
+
 ## 2026-10-07 - P2.4 feature arithmetic proposed (Dev B)
 
 `docs/feature_arithmetic.md` now gives exact fixed-point definitions for all ten features. It
