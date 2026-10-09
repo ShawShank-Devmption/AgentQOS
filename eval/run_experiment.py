@@ -36,6 +36,7 @@ from eval.baselines.base import baseline_plan
 
 LOGGER = logging.getLogger(__name__)
 HOST_LOCK_PATH = Path("/tmp/agentqos-experiment.lock")
+RUN_CLASS_METRICS = ("throughput_mbps", "p50_ms", "p95_ms", "p99_ms")
 
 
 class ConfigError(ValueError):
@@ -84,6 +85,7 @@ class RunArtifactDigests:
     run_summary_sha256: str
     packet_telemetry_sha256: str
     ingress_packet_telemetry_sha256: str
+    controller_lifecycle_sha256: str | None
 
 
 CommandRunner = Callable[[tuple[str, ...]], None]
@@ -316,6 +318,8 @@ def execute_run(
             "ingress_packet_telemetry_sha256": (artifact_digests.ingress_packet_telemetry_sha256),
         }
     )
+    if artifact_digests.controller_lifecycle_sha256 is not None:
+        manifest["controller_lifecycle_sha256"] = artifact_digests.controller_lifecycle_sha256
     manifest["finished_at"] = datetime.now(UTC).isoformat()
     _write_manifest(manifest_path, manifest)
 
@@ -466,12 +470,12 @@ def _validate_run_summary(run: RunSpec) -> RunArtifactDigests:
     required_classes = {traffic_class.name for traffic_class in TRAINING_LABELS}
     if not isinstance(classes, Mapping) or set(classes) != required_classes:
         raise RuntimeError("run_summary.json has invalid class coverage")
-    if not isinstance(raw.get("tool_completion"), Mapping):
-        raise RuntimeError("run_summary.json requires tool_completion metrics")
-    if not isinstance(raw.get("agent_attempts"), Mapping):
-        raise RuntimeError("run_summary.json requires agent_attempts metrics")
-    if not isinstance(raw.get("corpus"), Mapping):
-        raise RuntimeError("run_summary.json requires corpus metrics")
+    for class_name in required_classes:
+        metrics = classes[class_name]
+        if not isinstance(metrics, Mapping) or set(metrics) != set(RUN_CLASS_METRICS):
+            raise RuntimeError(f"run_summary.json has invalid {class_name} metrics")
+        for metric in RUN_CLASS_METRICS:
+            _nonnegative_number(metrics.get(metric), f"{class_name}.{metric}")
     if raw.get("latency_method") != "matched_two_tap":
         raise RuntimeError("run_summary.json requires matched two-tap latency")
     latency_match = raw.get("latency_match")
@@ -499,6 +503,62 @@ def _validate_run_summary(run: RunSpec) -> RunArtifactDigests:
         )
     ):
         raise RuntimeError("run_summary.json has invalid two-tap match evidence")
+    class_matches = latency_match.get("classes")
+    if not isinstance(class_matches, Mapping) or set(class_matches) != required_classes:
+        raise RuntimeError("run_summary.json requires two-tap match evidence for every class")
+    class_eligible_total = 0
+    class_matched_total = 0
+    for class_name in required_classes:
+        evidence = class_matches[class_name]
+        if not isinstance(evidence, Mapping):
+            raise RuntimeError(f"run_summary.json has invalid {class_name} match evidence")
+        class_eligible = evidence.get("eligible_packets")
+        class_matched = evidence.get("matched_packets")
+        class_coverage = evidence.get("coverage")
+        if (
+            isinstance(class_eligible, bool)
+            or not isinstance(class_eligible, int)
+            or class_eligible <= 0
+            or isinstance(class_matched, bool)
+            or not isinstance(class_matched, int)
+            or class_matched <= 0
+            or class_matched > class_eligible
+            or isinstance(class_coverage, bool)
+            or not isinstance(class_coverage, (int, float))
+            or not math.isfinite(float(class_coverage))
+            or not math.isclose(
+                float(class_coverage),
+                class_matched / class_eligible,
+                rel_tol=1e-12,
+                abs_tol=1e-12,
+            )
+        ):
+            raise RuntimeError(f"run_summary.json has invalid {class_name} match evidence")
+        class_eligible_total += class_eligible
+        class_matched_total += class_matched
+    if class_eligible_total != eligible or class_matched_total != matched:
+        raise RuntimeError("run_summary.json has inconsistent class match totals")
+    completion = _required_mapping(raw.get("tool_completion"), "tool_completion")
+    completion_count = _positive_integer(completion.get("count"), "tool_completion.count")
+    del completion_count
+    for metric in ("p50_ms", "p95_ms", "p99_ms"):
+        _nonnegative_number(completion.get(metric), f"tool_completion.{metric}")
+    attempts = _required_mapping(raw.get("agent_attempts"), "agent_attempts")
+    attempted = _positive_integer(attempts.get("attempted"), "agent_attempts.attempted")
+    completed = _nonnegative_integer(attempts.get("completed"), "agent_attempts.completed")
+    failed = _nonnegative_integer(attempts.get("failed"), "agent_attempts.failed")
+    if completed + failed != attempted:
+        raise RuntimeError("run_summary.json has inconsistent agent_attempts")
+    corpus = _required_mapping(raw.get("corpus"), "corpus")
+    verification_rate = _nonnegative_number(
+        corpus.get("verification_rate"), "corpus.verification_rate"
+    )
+    if verification_rate > 1:
+        raise RuntimeError("run_summary.json corpus.verification_rate exceeds one")
+    measurement_start = _nonnegative_number(raw.get("measurement_start_s"), "measurement_start_s")
+    measurement_end = _nonnegative_number(raw.get("measurement_end_s"), "measurement_end_s")
+    if measurement_end <= measurement_start:
+        raise RuntimeError("run_summary.json has invalid measurement interval")
     telemetry_digests: dict[str, str] = {}
     for telemetry_name in ("packet_telemetry.tsv", "ingress_packet_telemetry.tsv"):
         telemetry_path = run.output_dir / telemetry_name
@@ -510,11 +570,59 @@ def _validate_run_summary(run: RunSpec) -> RunArtifactDigests:
             ).hexdigest()
         except OSError as exc:
             raise RuntimeError(f"could not hash two-tap telemetry: {telemetry_path}") from exc
+    controller_lifecycle_sha256: str | None = None
+    if run.system == "ours":
+        lifecycle_path = run.output_dir / "controller_lifecycle.json"
+        try:
+            lifecycle_bytes = lifecycle_path.read_bytes()
+            lifecycle = json.loads(lifecycle_bytes)
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("ours run requires controller lifecycle evidence") from exc
+        if (
+            not isinstance(lifecycle, Mapping)
+            or lifecycle.get("ready") is not True
+            or lifecycle.get("status") != "stopped"
+            or lifecycle.get("workload_succeeded") is not True
+            or isinstance(lifecycle.get("policy_version"), bool)
+            or not isinstance(lifecycle.get("policy_version"), int)
+            or lifecycle["policy_version"] <= 0
+        ):
+            raise RuntimeError("ours run has invalid controller lifecycle evidence")
+        controller_lifecycle_sha256 = hashlib.sha256(lifecycle_bytes).hexdigest()
     return RunArtifactDigests(
         run_summary_sha256=hashlib.sha256(encoded).hexdigest(),
         packet_telemetry_sha256=telemetry_digests["packet_telemetry.tsv"],
         ingress_packet_telemetry_sha256=telemetry_digests["ingress_packet_telemetry.tsv"],
+        controller_lifecycle_sha256=controller_lifecycle_sha256,
     )
+
+
+def _required_mapping(value: object, field: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise RuntimeError(f"run_summary.json requires {field} metrics")
+    return cast(Mapping[str, object], value)
+
+
+def _nonnegative_number(value: object, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise RuntimeError(f"run_summary.json {field} must be numeric")
+    number = float(value)
+    if not math.isfinite(number) or number < 0:
+        raise RuntimeError(f"run_summary.json {field} must be finite and non-negative")
+    return number
+
+
+def _positive_integer(value: object, field: str) -> int:
+    integer = _nonnegative_integer(value, field)
+    if integer <= 0:
+        raise RuntimeError(f"run_summary.json {field} must be positive")
+    return integer
+
+
+def _nonnegative_integer(value: object, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise RuntimeError(f"run_summary.json {field} must be a non-negative integer")
+    return value
 
 
 def _run_command(command: tuple[str, ...]) -> None:

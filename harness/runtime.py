@@ -16,7 +16,8 @@ from ipaddress import IPv4Address
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from common.contracts import TrafficClass
+from common.contracts import POLICY_VERSION_REGISTER, TRAINING_LABELS, TrafficClass
+from controller.switch_api import SwitchApi, SwitchApiError
 from dashboard.producer import build_snapshot
 from eval.baselines.base import BaselinePlan, baseline_plan
 from eval.metrics import completion_times, percentile_summary
@@ -46,6 +47,9 @@ RuntimeValidator = Callable[[str], None]
 PortWaiter = Callable[[Any, str, int, Any], None]
 ArtifactCollector = Callable[["StormConfig"], None]
 LocalProcessStarter = Callable[[tuple[str, ...], Path], tuple[Any, Any]]
+ControllerFactory = Callable[
+    [SwitchLaunchConfig, Path], AbstractContextManager[Mapping[str, object]]
+]
 LOGGER = logging.getLogger(__name__)
 AGENT_HOST_NAMES = ("h_agent1", "h_agent2", "h_agent3", "h_agent4")
 AGENT_RESULT_FILES = {
@@ -54,6 +58,97 @@ AGENT_RESULT_FILES = {
     "autogen.json": "autogen",
     "claude_mcp.json": "claude-mcp",
 }
+
+
+class ControllerSession(AbstractContextManager[Mapping[str, object]]):
+    """Own and attest the proposed-system controller lifecycle (§7.5)."""
+
+    def __init__(
+        self,
+        switch_config: SwitchLaunchConfig,
+        output_dir: Path,
+        *,
+        process_starter: LocalProcessStarter | None = None,
+        api: SwitchApi | None = None,
+        timeout_s: float = 5.0,
+    ) -> None:
+        self._switch_config = switch_config
+        self._output_dir = output_dir
+        self._process_starter = process_starter or _start_local_logged_process
+        self._api = api or SwitchApi(switch_config.cli_path, switch_config.thrift_port)
+        self._timeout_s = timeout_s
+        self._process: Any | None = None
+        self._log_handle: Any | None = None
+        self._evidence: dict[str, object] = {}
+
+    def __enter__(self) -> Mapping[str, object]:
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        command = (
+            sys.executable,
+            "-m",
+            "controller.app",
+            "--cli-path",
+            str(self._switch_config.cli_path),
+            "--thrift-port",
+            str(self._switch_config.thrift_port),
+        )
+        started_at_s = time.time()
+        process, log_handle = self._process_starter(
+            command,
+            self._output_dir / "controller.log",
+        )
+        self._process = process
+        self._log_handle = log_handle
+        deadline = time.monotonic() + self._timeout_s
+        try:
+            while True:
+                if process.poll() is not None:
+                    raise RuntimeError("proposed-system controller exited before readiness")
+                try:
+                    policy_version = self._api.read_register(
+                        POLICY_VERSION_REGISTER,
+                        index=0,
+                    )
+                except SwitchApiError:
+                    policy_version = ()
+                if policy_version and policy_version[0] > 0:
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        "proposed-system controller did not install a positive policy version"
+                    )
+                time.sleep(0.05)
+        except Exception:
+            self._cleanup()
+            raise
+        self._evidence = {
+            "ready": True,
+            "status": "running",
+            "policy_version": policy_version[0],
+            "started_at_s": started_at_s,
+            "command": list(command),
+        }
+        return dict(self._evidence)
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        del exc_value, traceback
+        self._cleanup()
+        if self._evidence:
+            self._evidence["status"] = "stopped"
+            self._evidence["stopped_at_s"] = time.time()
+            self._evidence["workload_succeeded"] = exc_type is None
+            (self._output_dir / "controller_lifecycle.json").write_text(
+                json.dumps(self._evidence, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+
+    def _cleanup(self) -> None:
+        if self._process is not None:
+            _stop_process(self._process)
+            self._process = None
+        if self._log_handle is not None and not self._log_handle.closed:
+            self._log_handle.close()
+            self._log_handle = None
 
 
 class BaselineSession(AbstractContextManager["BaselineSession"]):
@@ -146,6 +241,7 @@ def run_storm(
     *,
     session_factory: SessionFactory = TopologySession,
     network_runner: NetworkRunner | None = None,
+    controller_factory: ControllerFactory = ControllerSession,
 ) -> None:
     """Execute one storm while owning its programmed topology lifecycle."""
     if not p4_json.is_file():
@@ -156,7 +252,11 @@ def run_storm(
         switch_log=config.output_dir / "simple_switch.log",
     )
     with session_factory(switch_config) as network:
-        (network_runner or run_network_storm)(network, config, plan)
+        if config.system == "ours":
+            with controller_factory(switch_config, config.output_dir):
+                (network_runner or run_network_storm)(network, config, plan)
+        else:
+            (network_runner or run_network_storm)(network, config, plan)
 
 
 def run_network_storm(
@@ -546,6 +646,13 @@ def write_run_summary(
     latency_match = snapshot["latency_match"]
     if not isinstance(latency_match, Mapping) or latency_match.get("matched_packets") == 0:
         raise RuntimeError("run summary requires matched two-tap latency packets")
+    class_matches = latency_match.get("classes")
+    if not isinstance(class_matches, Mapping) or any(
+        not isinstance(class_matches.get(traffic_class.name), Mapping)
+        or class_matches[traffic_class.name].get("matched_packets") == 0
+        for traffic_class in TRAINING_LABELS
+    ):
+        raise RuntimeError("run summary requires matched two-tap packets for every training class")
     completion_samples = completion_times(config.output_dir / "mcp_requests.jsonl")
     if not completion_samples:
         raise RuntimeError("run summary requires at least one successful MCP completion")

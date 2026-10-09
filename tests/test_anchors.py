@@ -26,7 +26,12 @@ def _write_inputs(root: Path) -> tuple[Path, Path]:
     )
     overhead = root / "overhead.csv"
     overhead.write_text(
-        "pipeline,latency_ms\nminimal,1.0\nminimal,1.0\nfull,1.04\nfull,1.04\n",
+        "pair_id,seed,host_id,load_profile,sample_id,pipeline,latency_ms\n"
+        + "".join(
+            f"pair-{seed},{seed},linux-vm,20mbps,packet-1,minimal,1.0\n"
+            f"pair-{seed},{seed},linux-vm,20mbps,packet-1,full,1.04\n"
+            for seed in range(1, 6)
+        ),
         encoding="utf-8",
     )
     return centerpiece, overhead
@@ -40,8 +45,6 @@ def test_anchor_report_selects_strictest_baseline_and_attests_inputs(tmp_path: P
         centerpiece,
         overhead,
         output,
-        min_p99_reduction=0.30,
-        max_overhead=0.05,
     )
 
     assert report.best_baseline == "fifo"
@@ -58,13 +61,19 @@ def test_anchor_report_selects_strictest_baseline_and_attests_inputs(tmp_path: P
 def test_anchor_report_writes_failed_outcome_without_hiding_it(tmp_path: Path) -> None:
     centerpiece, overhead = _write_inputs(tmp_path)
     output = tmp_path / "anchors.json"
+    centerpiece.write_text(
+        centerpiece.read_text(encoding="utf-8").replace("1,ours,60", "1,ours,90"),
+        encoding="utf-8",
+    )
+    overhead.write_text(
+        overhead.read_text(encoding="utf-8").replace(",full,1.04", ",full,1.06"),
+        encoding="utf-8",
+    )
 
     report = evaluate_anchor_files(
         centerpiece,
         overhead,
         output,
-        min_p99_reduction=0.40,
-        max_overhead=0.03,
     )
 
     assert not report.result.p99_passed
@@ -75,16 +84,16 @@ def test_anchor_report_writes_failed_outcome_without_hiding_it(tmp_path: Path) -
 def test_anchor_cli_returns_distinct_failure_status_after_writing_report(tmp_path: Path) -> None:
     centerpiece, overhead = _write_inputs(tmp_path)
     output = tmp_path / "anchors.json"
+    centerpiece.write_text(
+        centerpiece.read_text(encoding="utf-8").replace("1,ours,60", "1,ours,90"),
+        encoding="utf-8",
+    )
 
     status = main(
         [
             str(centerpiece),
             str(overhead),
             str(output),
-            "--min-p99-reduction",
-            "0.40",
-            "--max-overhead",
-            "0.03",
         ]
     )
 
@@ -102,6 +111,13 @@ def test_anchor_report_rejects_unbalanced_system_timelines(tmp_path: Path) -> No
             centerpiece,
             overhead,
             tmp_path / "anchors.json",
-            min_p99_reduction=0.30,
-            max_overhead=0.05,
         )
+
+
+def test_anchor_report_rejects_unpaired_overhead_samples(tmp_path: Path) -> None:
+    centerpiece, overhead = _write_inputs(tmp_path)
+    rows = overhead.read_text(encoding="utf-8").splitlines()
+    overhead.write_text("\n".join(rows[:-1]) + "\n", encoding="utf-8")
+
+    with pytest.raises(AnchorInputError, match="must be paired"):
+        evaluate_anchor_files(centerpiece, overhead, tmp_path / "anchors.json")

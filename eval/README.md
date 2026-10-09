@@ -43,14 +43,15 @@ The executor starts one persistent programmed topology, installs the selected ba
 topology, captures pcap plus line-buffered packet telemetry, runs the paced human flow and four
 concurrent agent sources, serves the live dashboard on port 8088, writes labels and metrics, and
 then tears every process down. A manifest becomes `complete` only after `run_summary.json` exists,
-matches the cell coordinates, matched two-tap evidence is positive and consistent, and SHA-256
+matches the cell coordinates, every training class has positive matched two-tap evidence, and SHA-256
 digests for the summary plus both telemetry files are recorded. Runtime failure or missing evidence
 leaves an immutable `failed` manifest.
 
 FIFO, DiffServ, fairq, and app-limiter cells use `build/l2fwd.json`. The proposed-system cell uses
-`build/agent_aware.json`; it cannot run until the Dev A/Dev B classifier, QoS program, policy
-installation, and controller lifecycle land. This is an external integration dependency, not a
-reason to treat a plan or baseline run as proposed-system evidence.
+`build/agent_aware.json`. Its workload is wrapped in a long-running `controller.app` process; the
+run must observe a positive `policy_version`, then preserve and hash `controller_lifecycle.json`.
+The current Dev B probe exits immediately and the policy/punt/reclassifier modules are absent, so
+preflight/runtime correctly block proposed-system evidence until that integration lands.
 
 The four baseline sanity definitions are `fifo_sanity.yaml`, `diffserv_sanity.yaml`,
 `fairq_sanity.yaml`, and `app_limiter_sanity.yaml`. The complete 375-cell matrix is defined by
@@ -85,24 +86,24 @@ Aggregation verifies each manifest-to-summary/telemetry SHA-256 link and coordin
 sanity configs remain in `audit.csv` but are excluded from statistical rows. Incomplete, failed, or
 post-run-mutated evidence is rejected rather than silently omitted. Outputs are `run_metrics.csv`,
 `confidence_intervals.csv`, `centerpiece.csv`, and `audit.csv`. The centerpiece automatically uses
-the largest common high-burst agent share, requires the same two-or-more seed set for all systems,
-and averages one-second human p99 samples across seeds.
+the largest common high-burst agent share, requires the same five-or-more seed set for all systems,
+requires a human two-tap match in every one-second interval, and averages human p99 across seeds.
 
 ## Evaluate the predeclared anchors
 
 After Dev A provides the audited `overhead.csv`, evaluate both headline targets explicitly:
 
 ```bash
-make anchors AGGREGATES=results/aggregates \
-  MIN_P99_REDUCTION=0.30 MAX_OVERHEAD=0.05
+make anchors AGGREGATES=results/aggregates
 ```
 
 The command averages each balanced centerpiece timeline, compares `ours` against the baseline with
 the lowest mean human p99, and compares mean full-pipeline latency with mean minimal-l2fwd latency.
 It writes `anchors.json` with both input SHA-256 digests, thresholds, measurements, and pass flags.
 The output is append-only. A missed target still writes the report and returns status 2 so CI or an
-operator cannot hide the failure. Thresholds remain explicit arguments because they are not frozen
-in `common/contracts.py`.
+operator cannot hide the failure. The predeclared 30% reduction and 5% overhead thresholds are
+fixed in the evaluator. Overhead input requires minimal/full samples paired by pair, seed, host,
+load profile, and sample identity across at least five seeds.
 
 ## Aggregate figure inputs
 
@@ -112,7 +113,7 @@ in `common/contracts.py`.
 |---|---|
 | `centerpiece.csv` | `time_s,system,human_p99_ms` |
 | `classification.csv` | `class,precision,recall` |
-| `overhead.csv` | `pipeline,latency_ms` |
+| `overhead.csv` | `pair_id,seed,host_id,load_profile,sample_id,pipeline,latency_ms` |
 | `scaling.csv` | `concurrent_flows,accuracy,memory_bytes,collision_rate` |
 | `evasion.csv` | `think_time_ms,accuracy,throughput_tps` |
 | `feature_importance.csv` | `feature,importance` |

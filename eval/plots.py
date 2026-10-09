@@ -16,6 +16,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from common.contracts import EXPERIMENT_SYSTEMS, FEATURE_ORDER, TRAINING_LABELS
+from eval.anchors import OVERHEAD_FIELDS
 
 LOGGER = logging.getLogger(__name__)
 FIGURE_NAMES = (
@@ -49,7 +50,7 @@ def generate_figures(raw_dir: Path, output_dir: Path) -> tuple[Path, ...]:
     """
     centerpiece = _read_csv(raw_dir / "centerpiece.csv", ("time_s", "system", "human_p99_ms"))
     classification = _read_csv(raw_dir / "classification.csv", ("class", "precision", "recall"))
-    overhead = _read_csv(raw_dir / "overhead.csv", ("pipeline", "latency_ms"))
+    overhead = _read_csv(raw_dir / "overhead.csv", OVERHEAD_FIELDS)
     scaling = _read_csv(
         raw_dir / "scaling.csv",
         ("concurrent_flows", "accuracy", "memory_bytes", "collision_rate"),
@@ -80,7 +81,11 @@ def generate_figures(raw_dir: Path, output_dir: Path) -> tuple[Path, ...]:
         frozenset(label.name for label in TRAINING_LABELS),
         "classification.csv",
     )
-    _validate_unique(overhead, ("pipeline", "latency_ms"), "overhead.csv")
+    _validate_unique(
+        overhead,
+        ("pair_id", "seed", "host_id", "load_profile", "sample_id", "pipeline"),
+        "overhead.csv",
+    )
     _validate_exact_values(overhead, "pipeline", frozenset(("minimal", "full")), "overhead.csv")
     _validate_unique(scaling, ("concurrent_flows",), "scaling.csv")
     _validate_unique(evasion, ("think_time_ms",), "evasion.csv")

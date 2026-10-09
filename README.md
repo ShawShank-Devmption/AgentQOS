@@ -58,8 +58,7 @@ sudo make baseline-sanity
 sudo make full-grid
 make aggregate RESULTS=results AGGREGATES=results/aggregates
 # After Dev A supplies the audited overhead.csv:
-make anchors AGGREGATES=results/aggregates \
-  MIN_P99_REDUCTION=0.30 MAX_OVERHEAD=0.05
+make anchors AGGREGATES=results/aggregates
 ```
 
 `eval.aggregate` rejects incomplete runs and hash/coordinate mismatches, emits per-run metrics and

@@ -19,6 +19,7 @@ COMMON_COMMANDS = frozenset({"simple_switch", "simple_switch_CLI", "tshark", "ip
 OURS_INTEGRATION_PATHS = (
     Path("p4src/agent_aware.p4"),
     Path("build/agent_aware.json"),
+    Path("controller/app.py"),
     Path("controller/policy.py"),
     Path("controller/punt_handler.py"),
     Path("controller/reclassifier.py"),

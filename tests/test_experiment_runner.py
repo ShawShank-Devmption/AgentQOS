@@ -155,6 +155,24 @@ def test_non_two_tap_run_summary_is_recorded_as_failed(tmp_path: Path) -> None:
     assert manifest["status"] == "failed"
 
 
+def test_empty_metric_objects_cannot_mark_a_run_complete(tmp_path: Path) -> None:
+    run = expand_runs(_config(), tmp_path)[0]
+
+    def write_invalid_summary(command: tuple[str, ...]) -> None:
+        del command
+        _write_run_summary(run.output_dir / "run_summary.json", run)
+        summary_path = run.output_dir / "run_summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        summary["tool_completion"] = {}
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="tool_completion"):
+        execute_run(run, command_runner=write_invalid_summary)
+
+    manifest = json.loads((run.output_dir / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "failed"
+
+
 @pytest.mark.parametrize("system", ["fifo", "diffserv", "fairq", "app_limiter"])
 def test_each_baseline_has_setup_and_teardown_commands(system: str) -> None:
     plan = baseline_plan(system, link_mbps=20)
@@ -233,18 +251,40 @@ def _write_run_summary(path: Path, run: RunSpec) -> None:
                 "seed": run.seed,
                 "latency_method": "matched_two_tap",
                 "latency_match": {
-                    "eligible_packets": 10,
+                    "eligible_packets": 9,
                     "matched_packets": 9,
-                    "coverage": 0.9,
+                    "coverage": 1.0,
+                    "classes": {
+                        class_name: {
+                            "eligible_packets": 3,
+                            "matched_packets": 3,
+                            "coverage": 1.0,
+                        }
+                        for class_name in (
+                            "HUMAN_INTERACTIVE",
+                            "AGENT_INTERACTIVE",
+                            "AGENT_BULK",
+                        )
+                    },
                 },
                 "classes": {
-                    "HUMAN_INTERACTIVE": {},
-                    "AGENT_INTERACTIVE": {},
-                    "AGENT_BULK": {},
+                    class_name: {
+                        "throughput_mbps": 1.0,
+                        "p50_ms": 1.0,
+                        "p95_ms": 2.0,
+                        "p99_ms": 3.0,
+                    }
+                    for class_name in (
+                        "HUMAN_INTERACTIVE",
+                        "AGENT_INTERACTIVE",
+                        "AGENT_BULK",
+                    )
                 },
-                "tool_completion": {},
-                "agent_attempts": {},
-                "corpus": {},
+                "tool_completion": {"count": 1, "p50_ms": 1.0, "p95_ms": 2.0, "p99_ms": 3.0},
+                "agent_attempts": {"attempted": 1, "completed": 1, "failed": 0},
+                "corpus": {"verification_rate": 1.0},
+                "measurement_start_s": 10.0,
+                "measurement_end_s": 40.0,
             }
         ),
         encoding="utf-8",

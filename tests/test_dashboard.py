@@ -21,6 +21,23 @@ def _snapshot() -> dict[str, object]:
             "eligible_packets": 10,
             "matched_packets": 9,
             "coverage": 0.9,
+            "classes": {
+                "HUMAN_INTERACTIVE": {
+                    "eligible_packets": 4,
+                    "matched_packets": 4,
+                    "coverage": 1.0,
+                },
+                "AGENT_INTERACTIVE": {
+                    "eligible_packets": 3,
+                    "matched_packets": 3,
+                    "coverage": 1.0,
+                },
+                "AGENT_BULK": {
+                    "eligible_packets": 3,
+                    "matched_packets": 2,
+                    "coverage": 2 / 3,
+                },
+            },
         },
         "classes": {
             "HUMAN_INTERACTIVE": {
@@ -160,6 +177,23 @@ def test_live_producer_uses_matched_two_tap_transit_latency(tmp_path: Path) -> N
         "eligible_packets": 2,
         "matched_packets": 2,
         "coverage": 1.0,
+        "classes": {
+            "HUMAN_INTERACTIVE": {
+                "eligible_packets": 1,
+                "matched_packets": 1,
+                "coverage": 1.0,
+            },
+            "AGENT_INTERACTIVE": {
+                "eligible_packets": 1,
+                "matched_packets": 1,
+                "coverage": 1.0,
+            },
+            "AGENT_BULK": {
+                "eligible_packets": 0,
+                "matched_packets": 0,
+                "coverage": 0.0,
+            },
+        },
     }
     assert classes["HUMAN_INTERACTIVE"]["p99_ms"] == pytest.approx(10.0)
     assert classes["AGENT_INTERACTIVE"]["p99_ms"] == pytest.approx(30.0)
@@ -201,6 +235,25 @@ def test_two_tap_latency_matches_reverse_direction_at_the_source_tap(tmp_path: P
     classes = snapshot["classes"]
     assert isinstance(classes, dict)
     assert classes["HUMAN_INTERACTIVE"]["p99_ms"] == pytest.approx(20.0)
+
+
+def test_snapshot_reader_rejects_class_match_totals_inconsistent_with_global(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "snapshot.json"
+    snapshot = _snapshot()
+    latency_match = snapshot["latency_match"]
+    assert isinstance(latency_match, dict)
+    class_matches = latency_match["classes"]
+    assert isinstance(class_matches, dict)
+    human = class_matches["HUMAN_INTERACTIVE"]
+    assert isinstance(human, dict)
+    human["matched_packets"] = 3
+    human["coverage"] = 0.75
+    path.write_text(json.dumps(snapshot), encoding="utf-8")
+
+    with pytest.raises(SnapshotError, match="class match totals"):
+        read_snapshot(path)
 
 
 def test_live_producer_writes_a_server_valid_snapshot_atomically(tmp_path: Path) -> None:

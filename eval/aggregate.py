@@ -15,12 +15,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from common.contracts import EXPERIMENT_SYSTEMS, TRAINING_LABELS
+from common.contracts import BURST_INTENSITIES, EXPERIMENT_SYSTEMS, TRAINING_LABELS
 from dashboard.producer import build_snapshot_from_packets, read_telemetry
 from eval.metrics import MetricInputError, confidence_interval_95
 
 LOGGER = logging.getLogger(__name__)
 CLASS_METRICS = ("throughput_mbps", "p50_ms", "p95_ms", "p99_ms")
+MIN_STATISTICAL_SEEDS = 5
+EXPECTED_AGENT_SHARES = frozenset({10, 30, 50, 70, 90})
 
 
 class AggregateError(ValueError):
@@ -48,6 +50,7 @@ def aggregate_results(results_root: Path, output_dir: Path) -> tuple[Path, ...]:
     """
     artifacts = _load_artifacts(results_root)
     statistical_artifacts = _multi_seed_artifacts(artifacts)
+    _validate_statistical_coordinates(statistical_artifacts)
     run_rows = _run_metric_rows(statistical_artifacts)
     confidence_rows = _confidence_rows(run_rows)
     centerpiece_rows = _centerpiece_rows(statistical_artifacts)
@@ -71,6 +74,7 @@ def aggregate_results(results_root: Path, output_dir: Path) -> tuple[Path, ...]:
             "run_summary_sha256",
             "packet_telemetry_sha256",
             "ingress_packet_telemetry_sha256",
+            "controller_lifecycle_sha256",
         ),
         audit_rows,
     )
@@ -172,6 +176,26 @@ def _load_artifacts(results_root: Path) -> tuple[RunArtifact, ...]:
             manifest.get("ingress_packet_telemetry_sha256"),
             "ingress packet telemetry",
         )
+        if manifest.get("system") == "ours":
+            lifecycle_path = manifest_path.with_name("controller_lifecycle.json")
+            if not lifecycle_path.is_file():
+                raise AggregateError(f"ours run omitted controller lifecycle: {lifecycle_path}")
+            _verify_digest(
+                lifecycle_path,
+                manifest.get("controller_lifecycle_sha256"),
+                "controller lifecycle",
+            )
+            lifecycle = _read_mapping(lifecycle_path)
+            policy_version = lifecycle.get("policy_version")
+            if (
+                lifecycle.get("ready") is not True
+                or lifecycle.get("status") != "stopped"
+                or lifecycle.get("workload_succeeded") is not True
+                or isinstance(policy_version, bool)
+                or not isinstance(policy_version, int)
+                or policy_version <= 0
+            ):
+                raise AggregateError(f"invalid controller lifecycle: {lifecycle_path}")
         artifacts.append(RunArtifact(manifest_path.parent, manifest, summary))
     return tuple(artifacts)
 
@@ -244,9 +268,9 @@ def _confidence_rows(run_rows: Sequence[Mapping[str, object]]) -> tuple[dict[str
             ].append(float(row["agent_failure_rate"]))
     rows: list[dict[str, object]] = []
     for (system, share, burst, class_name, metric), values in sorted(samples.items()):
-        if len(values) < 2:
+        if len(values) < MIN_STATISTICAL_SEEDS:
             raise AggregateError(
-                f"confidence interval requires at least two seeds: "
+                f"confidence interval requires at least five seeds: "
                 f"{system}/{share}/{burst}/{class_name}/{metric}"
             )
         interval = confidence_interval_95(values)
@@ -294,8 +318,10 @@ def _centerpiece_rows(artifacts: Sequence[RunArtifact]) -> tuple[dict[str, objec
         {int(artifact.manifest["seed"]) for artifact in selected[system]}
         for system in EXPERIMENT_SYSTEMS
     ]
-    if len(seed_sets[0]) < 2 or any(seeds != seed_sets[0] for seeds in seed_sets[1:]):
-        raise AggregateError("centerpiece requires balanced multi-seed coverage across systems")
+    if len(seed_sets[0]) < MIN_STATISTICAL_SEEDS or any(
+        seeds != seed_sets[0] for seeds in seed_sets[1:]
+    ):
+        raise AggregateError("centerpiece requires balanced five-seed coverage across systems")
     durations = {
         int(artifact.manifest["duration_s"])
         for system in EXPERIMENT_SYSTEMS
@@ -318,6 +344,16 @@ def _centerpiece_rows(artifacts: Sequence[RunArtifact]) -> tuple[dict[str, objec
                     window_s=1.0,
                 )
                 classes = _mapping(snapshot["classes"], "classes")
+                latency_match = _mapping(snapshot["latency_match"], "latency_match")
+                class_matches = _mapping(latency_match["classes"], "latency_match.classes")
+                human_match = _mapping(
+                    class_matches["HUMAN_INTERACTIVE"],
+                    "latency_match.classes.HUMAN_INTERACTIVE",
+                )
+                if _number(human_match["matched_packets"], "matched_packets") <= 0:
+                    raise AggregateError(
+                        "centerpiece interval requires at least one human two-tap match"
+                    )
                 human = _mapping(classes["HUMAN_INTERACTIVE"], "HUMAN_INTERACTIVE")
                 samples[(system, offset_s)].append(_number(human["p99_ms"], "p99_ms"))
     return tuple(
@@ -350,6 +386,7 @@ def _audit_rows(
             "run_summary_sha256": artifact.manifest["run_summary_sha256"],
             "packet_telemetry_sha256": artifact.manifest["packet_telemetry_sha256"],
             "ingress_packet_telemetry_sha256": artifact.manifest["ingress_packet_telemetry_sha256"],
+            "controller_lifecycle_sha256": artifact.manifest.get("controller_lifecycle_sha256", ""),
         }
         for artifact in artifacts
     )
@@ -366,7 +403,7 @@ def _multi_seed_artifacts(artifacts: Sequence[RunArtifact]) -> tuple[RunArtifact
     eligible = {
         key
         for key, grouped in by_config.items()
-        if len({int(artifact.manifest["seed"]) for artifact in grouped}) >= 2
+        if len({int(artifact.manifest["seed"]) for artifact in grouped}) >= MIN_STATISTICAL_SEEDS
     }
     selected = tuple(
         artifact
@@ -374,8 +411,55 @@ def _multi_seed_artifacts(artifacts: Sequence[RunArtifact]) -> tuple[RunArtifact
         if (str(artifact.manifest["config_hash"]), str(artifact.manifest["system"])) in eligible
     )
     if not selected:
-        raise AggregateError("no multi-seed experiment configs were found")
+        raise AggregateError("no five-seed experiment configs were found")
     return selected
+
+
+def _validate_statistical_coordinates(artifacts: Sequence[RunArtifact]) -> None:
+    regimes = {
+        (int(artifact.manifest["link_mbps"]), int(artifact.manifest["duration_s"]))
+        for artifact in artifacts
+    }
+    if len(regimes) != 1:
+        raise AggregateError("statistical aggregation requires one link rate and duration")
+    seen: set[tuple[str, int, int, int, str, int]] = set()
+    by_system: dict[str, set[tuple[int, str, int]]] = defaultdict(set)
+    for artifact in artifacts:
+        coordinate = (
+            str(artifact.manifest["system"]),
+            int(artifact.manifest["link_mbps"]),
+            int(artifact.manifest["duration_s"]),
+            int(artifact.manifest["agent_share_pct"]),
+            str(artifact.manifest["burst_intensity"]),
+            int(artifact.manifest["seed"]),
+        )
+        if coordinate in seen:
+            raise AggregateError("duplicate statistical system/share/burst/seed coordinate")
+        seen.add(coordinate)
+        by_system[coordinate[0]].add((coordinate[3], coordinate[4], coordinate[5]))
+    if set(by_system) != set(EXPERIMENT_SYSTEMS):
+        raise AggregateError("statistical grid requires all five systems")
+    coordinate_sets = tuple(by_system[system] for system in EXPERIMENT_SYSTEMS)
+    if any(coordinates != coordinate_sets[0] for coordinates in coordinate_sets[1:]):
+        raise AggregateError("statistical grid coordinates must be balanced across systems")
+    shares = {coordinate[0] for coordinate in coordinate_sets[0]}
+    bursts = {coordinate[1] for coordinate in coordinate_sets[0]}
+    if shares != EXPECTED_AGENT_SHARES or bursts != set(BURST_INTENSITIES):
+        raise AggregateError("statistical grid requires five shares and three burst presets")
+    seed_sets = {
+        (share, burst): {
+            seed
+            for candidate_share, candidate_burst, seed in coordinate_sets[0]
+            if candidate_share == share and candidate_burst == burst
+        }
+        for share in EXPECTED_AGENT_SHARES
+        for burst in BURST_INTENSITIES
+    }
+    expected_seeds = next(iter(seed_sets.values()))
+    if len(expected_seeds) < MIN_STATISTICAL_SEEDS or any(
+        seeds != expected_seeds for seeds in seed_sets.values()
+    ):
+        raise AggregateError("statistical grid requires one balanced five-seed set")
 
 
 def _validate_coordinates(
@@ -406,8 +490,31 @@ def _validate_summary_metrics(summary: Mapping[str, object], summary_path: Path)
         raise AggregateError(f"invalid two-tap match counts: {summary_path}")
     if not math.isclose(coverage, matched / eligible, rel_tol=1e-12, abs_tol=1e-12):
         raise AggregateError(f"invalid two-tap match coverage: {summary_path}")
+    class_matches = _mapping(latency_match.get("classes"), "latency_match.classes")
     classes = _mapping(summary.get("classes"), "classes")
     required_classes = {traffic_class.name for traffic_class in TRAINING_LABELS}
+    if set(class_matches) != required_classes:
+        raise AggregateError(f"invalid class match coverage: {summary_path}")
+    class_eligible_total = 0.0
+    class_matched_total = 0.0
+    for class_name in required_classes:
+        evidence = _mapping(class_matches[class_name], class_name)
+        class_eligible = _number(evidence.get("eligible_packets"), "eligible_packets")
+        class_matched = _number(evidence.get("matched_packets"), "matched_packets")
+        class_coverage = _number(evidence.get("coverage"), "coverage")
+        if class_eligible <= 0 or class_matched <= 0 or class_matched > class_eligible:
+            raise AggregateError(f"invalid {class_name} match counts: {summary_path}")
+        if not math.isclose(
+            class_coverage,
+            class_matched / class_eligible,
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        ):
+            raise AggregateError(f"invalid {class_name} match coverage: {summary_path}")
+        class_eligible_total += class_eligible
+        class_matched_total += class_matched
+    if class_eligible_total != eligible or class_matched_total != matched:
+        raise AggregateError(f"inconsistent class match totals: {summary_path}")
     if set(classes) != required_classes:
         raise AggregateError(f"invalid class coverage: {summary_path}")
     for class_name in required_classes:

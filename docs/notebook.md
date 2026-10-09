@@ -93,7 +93,7 @@ Completed the repository-owned execution path that was previously only planned:
   configured bottleneck for FIFO, DiffServ, and fairq;
 - the storm runtime concurrently runs full pcap capture, line-buffered packet telemetry, MCP target,
   a paced video-call-like human TCP stream, four agent sources, and the dashboard;
-- live snapshots report per-class sliding-window throughput plus TCP ACK RTT p50/p95/p99;
+- live snapshots report per-class sliding-window throughput plus matched two-tap p50/p95/p99;
 - successful cells require verified labels, at least 95% orchestration traceability, successful MCP
   completion samples, and a coordinate-matched `run_summary.json` whose SHA-256 is placed in the
   manifest; and
@@ -101,13 +101,14 @@ Completed the repository-owned execution path that was previously only planned:
   excludes single-seed sanity configs from statistics with an explicit audit flag, computes
   Student-t intervals, and derives the balanced five-system centerpiece timeline from telemetry.
 
-Fresh host evidence: `make lint` passes and 138 pytest tests pass. Wireshark's official tshark man
+Fresh host evidence: `make lint` passes and 164 pytest tests pass. Wireshark's official tshark man
 page confirms `-T fields`, `separator=/t`, and repeated `-e`; the official TCP field reference
 confirms `tcp.analysis.ack_rtt` is a time-offset field.
 
 External-runtime boundary remains unchanged: Darwin cannot run Mininet/BMv2, no real approved
 framework credentials or trace corpus are present, and Dev A/Dev B have not supplied
-`p4src/agent_aware.p4`, the compiled JSON, policy installation, or controller lifecycle. Therefore
+`p4src/agent_aware.p4`, the compiled JSON, or the policy/punt/reclassifier implementation. The
+harness lifecycle gate is ready but correctly rejects the current one-shot controller probe. Therefore
 baseline/P4 execution, real corpus capture, 375-cell results, anchor outcomes, and two rehearsals
 remain evidence tasks, not completed claims.
 

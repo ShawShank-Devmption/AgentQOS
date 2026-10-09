@@ -24,7 +24,11 @@ def _write_raw_inputs(root: Path) -> None:
         encoding="utf-8",
     )
     (root / "overhead.csv").write_text(
-        "pipeline,latency_ms\nminimal,1.0\nminimal,2.0\nfull,1.1\nfull,2.2\n",
+        "pair_id,seed,host_id,load_profile,sample_id,pipeline,latency_ms\n"
+        "pair-1,1,linux-vm,20mbps,packet-1,minimal,1.0\n"
+        "pair-1,1,linux-vm,20mbps,packet-1,full,1.1\n"
+        "pair-2,2,linux-vm,20mbps,packet-2,minimal,2.0\n"
+        "pair-2,2,linux-vm,20mbps,packet-2,full,2.2\n",
         encoding="utf-8",
     )
     (root / "scaling.csv").write_text(

@@ -37,8 +37,9 @@ ports and at the target interface. Both tshark processes use the emulation host'
 key includes addresses, IPv4 ID, protocol, TCP ports, sequence/acknowledgment numbers, payload
 length, flags, and frame length; matches are consumed one-to-one in timestamp order. Forward delay
 is target timestamp minus source-side timestamp, and reverse delay uses the opposite order.
-Unmatched packets are excluded rather than assigned an ACK RTT. Completed run summaries and
-aggregates require `latency_method=matched_two_tap` plus both telemetry artifacts.
+Unmatched packets are excluded rather than assigned an ACK RTT. Completed run summaries require a
+positive match for every training class; centerpiece intervals require a human match. Aggregates
+require `latency_method=matched_two_tap` plus both telemetry artifacts.
 
 Throughput is the sum of both directions' target-tap frame bytes over each sliding window. Human and
 agent latency use linearly interpolated p50/p95/p99 values. The paced 2 Mbps, 1200-byte TCP human
@@ -50,17 +51,19 @@ rather than zero. Across seeds, means and two-sided 95% Student-t confidence int
 
 Every successful cell writes `run_summary.json`; the enclosing manifest records its SHA-256.
 The manifest also records SHA-256 for target and ingress telemetry. `eval.aggregate` verifies all
-three hashes and cell coordinates, emits an audit trail and per-run rows, and computes Student-t
-intervals only for multi-seed configs. The centerpiece selects the largest agent share shared by all
-five systems under the high burst preset and averages aligned one-second human-p99 samples across a
-balanced seed set.
+three hashes and cell coordinates, rejects duplicate/unbalanced grids or mixed link/duration
+regimes, emits an audit trail and per-run rows, and computes Student-t intervals only for configs
+with at least five seeds. The centerpiece selects the largest agent share shared by all five systems
+under the high burst preset and averages aligned one-second human-p99 samples across a balanced seed
+set.
 
 The headline checks compare human p99 against the best baseline and relative per-packet overhead
-against minimal l2fwd. The design targets (30% reduction and under 5% overhead) are supplied
-explicitly to `eval.metrics.evaluate_anchors` until the team approves shared constants; failures
-are written to a SHA-attested `anchors.json` and return a distinct nonzero status, not omitted. The
-best baseline is the non-ours system with the lowest mean p99 on the balanced centerpiece timeline.
-Interactive-agent completion times are reported alongside human protection to expose starvation.
+against minimal l2fwd. The predeclared targets are fixed at 30% reduction and under 5% overhead;
+failures are written to a SHA-attested `anchors.json` and return a distinct nonzero status, not
+omitted. Minimal/full overhead samples must be paired on seed, host, load, pair, and sample identity
+across at least five seeds. The best baseline is the non-ours system with the lowest mean p99 on the
+balanced centerpiece timeline. Interactive-agent completion times are reported alongside human
+protection to expose starvation.
 
 ## Figures and traceability
 
@@ -77,5 +80,6 @@ generation. The persistent executor is implemented for Linux and the four l2fwd 
 host evidence does not verify clock/capture behavior in Mininet, P4 compilation, forwarding,
 real-framework captures, the full grid, headline anchors, or rehearsals. Those claims require the
 documented Linux environment and archived raw evidence. The proposed-system run additionally
-requires the absent Dev A/Dev B `agent_aware.p4`, policy install, and controller lifecycle. Dry-run
-manifests remain planning artifacts only.
+requires the absent Dev A/Dev B `agent_aware.p4`, policy, punt, and reclassification implementation.
+Runtime holds `controller.app` alive, observes a positive `policy_version`, and hashes lifecycle
+evidence before an `ours` cell can complete. Dry-run manifests remain planning artifacts only.

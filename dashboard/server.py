@@ -77,8 +77,31 @@ def _validate_latency_match(value: object) -> None:
         "eligible_packets",
         "matched_packets",
         "coverage",
+        "classes",
     }:
         raise SnapshotError("dashboard snapshot has invalid latency_match fields")
+    eligible, matched = _validate_match_counts(value, "latency")
+    classes = value["classes"]
+    required_classes = {traffic_class.name for traffic_class in TRAINING_LABELS}
+    if not isinstance(classes, Mapping) or set(classes) != required_classes:
+        raise SnapshotError("dashboard snapshot has invalid class match coverage")
+    class_totals = [0, 0]
+    for class_name in sorted(required_classes):
+        class_value = classes[class_name]
+        if not isinstance(class_value, Mapping) or set(class_value) != {
+            "eligible_packets",
+            "matched_packets",
+            "coverage",
+        }:
+            raise SnapshotError(f"dashboard snapshot has invalid {class_name} match fields")
+        class_eligible, class_matched = _validate_match_counts(class_value, class_name)
+        class_totals[0] += class_eligible
+        class_totals[1] += class_matched
+    if class_totals != [eligible, matched]:
+        raise SnapshotError("dashboard snapshot class match totals are inconsistent")
+
+
+def _validate_match_counts(value: Mapping[object, object], label: str) -> tuple[int, int]:
     eligible = value["eligible_packets"]
     matched = value["matched_packets"]
     coverage = value["coverage"]
@@ -91,14 +114,15 @@ def _validate_latency_match(value: object) -> None:
         or matched < 0
         or matched > eligible
     ):
-        raise SnapshotError("dashboard snapshot has invalid latency match counts")
+        raise SnapshotError(f"dashboard snapshot has invalid {label} match counts")
     if isinstance(coverage, bool) or not isinstance(coverage, (int, float)):
-        raise SnapshotError("dashboard snapshot has invalid latency match coverage")
+        raise SnapshotError(f"dashboard snapshot has invalid {label} match coverage")
     expected = matched / eligible if eligible else 0.0
     if not math.isfinite(float(coverage)) or not math.isclose(
         float(coverage), expected, rel_tol=1e-12, abs_tol=1e-12
     ):
-        raise SnapshotError("dashboard snapshot has inconsistent match coverage")
+        raise SnapshotError(f"dashboard snapshot has inconsistent {label} match coverage")
+    return eligible, matched
 
 
 def create_server(

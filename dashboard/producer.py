@@ -124,24 +124,46 @@ def build_snapshot_from_packets(
             latencies_ms[traffic_class].append(packet.ack_rtt_s * 1_000)
 
     latency_method = "tcp_ack_rtt"
-    latency_match: dict[str, int | float] = {
+    latency_match: dict[str, object] = {
         "eligible_packets": 0,
         "matched_packets": 0,
         "coverage": 0.0,
+        "classes": {
+            traffic_class.name: {
+                "eligible_packets": 0,
+                "matched_packets": 0,
+                "coverage": 0.0,
+            }
+            for traffic_class in TRAINING_LABELS
+        },
     }
     if ingress_packets is not None:
         latency_method = "matched_two_tap"
-        latencies_ms, eligible_packets, matched_packets = _matched_latencies_ms(
+        latencies_ms, class_match_counts = _matched_latencies_ms(
             packets,
             ingress_packets,
             class_ips,
             cutoff_s=cutoff_s,
             now_s=now_s,
         )
+        eligible_packets = sum(counts[0] for counts in class_match_counts.values())
+        matched_packets = sum(counts[1] for counts in class_match_counts.values())
         latency_match = {
             "eligible_packets": eligible_packets,
             "matched_packets": matched_packets,
             "coverage": matched_packets / eligible_packets if eligible_packets else 0.0,
+            "classes": {
+                traffic_class.name: {
+                    "eligible_packets": class_match_counts[traffic_class][0],
+                    "matched_packets": class_match_counts[traffic_class][1],
+                    "coverage": (
+                        class_match_counts[traffic_class][1] / class_match_counts[traffic_class][0]
+                        if class_match_counts[traffic_class][0]
+                        else 0.0
+                    ),
+                }
+                for traffic_class in TRAINING_LABELS
+            },
         }
 
     classes: dict[str, dict[str, float]] = {}
@@ -329,10 +351,9 @@ def _matched_latencies_ms(
     *,
     cutoff_s: float,
     now_s: float,
-) -> tuple[dict[TrafficClass, list[float]], int, int]:
+) -> tuple[dict[TrafficClass, list[float]], dict[TrafficClass, tuple[int, int]]]:
     latencies = {traffic_class: [] for traffic_class in TRAINING_LABELS}
-    eligible_packets = 0
-    matched_packets = 0
+    class_match_counts = {traffic_class: [0, 0] for traffic_class in TRAINING_LABELS}
     ingress_by_key: dict[PacketKey, deque[float]] = defaultdict(deque)
     for packet in sorted(ingress_packets, key=lambda item: item.timestamp_s):
         if packet.packet_key is not None:
@@ -346,7 +367,7 @@ def _matched_latencies_ms(
         traffic_class = source_class or destination_class
         if traffic_class is None:
             continue
-        eligible_packets += 1
+        class_match_counts[traffic_class][0] += 1
         candidates = ingress_by_key.get(packet.packet_key)
         if not candidates:
             continue
@@ -364,8 +385,11 @@ def _matched_latencies_ms(
             latency_s = source_time_s - packet.timestamp_s
         if math.isfinite(latency_s) and latency_s >= 0:
             latencies[traffic_class].append(latency_s * 1_000)
-            matched_packets += 1
-    return latencies, eligible_packets, matched_packets
+            class_match_counts[traffic_class][1] += 1
+    return latencies, {
+        traffic_class: (counts[0], counts[1])
+        for traffic_class, counts in class_match_counts.items()
+    }
 
 
 def _class_ip_map() -> Mapping[str, TrafficClass]:

@@ -18,6 +18,17 @@ from common.contracts import EXPERIMENT_SYSTEMS
 from eval.metrics import AnchorResult, MetricInputError, evaluate_anchors
 
 LOGGER = logging.getLogger(__name__)
+PREDECLARED_MIN_P99_REDUCTION = 0.30
+PREDECLARED_MAX_OVERHEAD = 0.05
+OVERHEAD_FIELDS = (
+    "pair_id",
+    "seed",
+    "host_id",
+    "load_profile",
+    "sample_id",
+    "pipeline",
+    "latency_ms",
+)
 
 
 class AnchorInputError(ValueError):
@@ -40,9 +51,6 @@ def evaluate_anchor_files(
     centerpiece_path: Path,
     overhead_path: Path,
     output_path: Path,
-    *,
-    min_p99_reduction: float,
-    max_overhead: float,
 ) -> AnchorReport:
     """Evaluate anchors from strict CSV inputs and write an attested JSON result.
 
@@ -50,9 +58,6 @@ def evaluate_anchor_files(
         centerpiece_path: Balanced five-system human-p99 timeline from `eval.aggregate`.
         overhead_path: Per-packet minimal and full pipeline latency samples.
         output_path: New JSON destination; existing evidence is never overwritten.
-        min_p99_reduction: Required fractional human-p99 reduction.
-        max_overhead: Maximum allowed fractional pipeline overhead.
-
     Returns:
         The complete anchor report, including explicit pass flags.
     """
@@ -60,7 +65,7 @@ def evaluate_anchor_files(
         centerpiece_path,
         ("time_s", "system", "human_p99_ms"),
     )
-    overhead_rows = _read_csv(overhead_path, ("pipeline", "latency_ms"))
+    overhead_rows = _read_csv(overhead_path, OVERHEAD_FIELDS)
     system_samples, time_coordinates = _centerpiece_samples(centerpiece_rows)
     if set(system_samples) != set(EXPERIMENT_SYSTEMS):
         raise AnchorInputError("centerpiece must contain exactly all five experiment systems")
@@ -75,8 +80,8 @@ def evaluate_anchor_files(
         baseline_p99_ms=baseline_means[best_baseline],
         full_pipeline_latency_ms=statistics.fmean(overhead_samples["full"]),
         minimal_pipeline_latency_ms=statistics.fmean(overhead_samples["minimal"]),
-        min_p99_reduction=min_p99_reduction,
-        max_overhead=max_overhead,
+        min_p99_reduction=PREDECLARED_MIN_P99_REDUCTION,
+        max_overhead=PREDECLARED_MAX_OVERHEAD,
     )
     report = AnchorReport(
         best_baseline=best_baseline,
@@ -94,8 +99,8 @@ def evaluate_anchor_files(
             "overhead_sha256": _sha256(overhead_path),
         },
         "thresholds": {
-            "min_p99_reduction": min_p99_reduction,
-            "max_overhead": max_overhead,
+            "min_p99_reduction": PREDECLARED_MIN_P99_REDUCTION,
+            "max_overhead": PREDECLARED_MAX_OVERHEAD,
         },
         "best_baseline": report.best_baseline,
         "measurements": {
@@ -120,8 +125,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("centerpiece", type=Path)
     parser.add_argument("overhead", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument("--min-p99-reduction", type=float, required=True)
-    parser.add_argument("--max-overhead", type=float, required=True)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     try:
@@ -129,8 +132,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.centerpiece,
             args.overhead,
             args.output,
-            min_p99_reduction=args.min_p99_reduction,
-            max_overhead=args.max_overhead,
         )
     except (AnchorInputError, FileExistsError, FileNotFoundError, MetricInputError, OSError) as exc:
         LOGGER.error("anchor evaluation failed: %s", exc)
@@ -192,17 +193,40 @@ def _centerpiece_samples(
 
 def _overhead_samples(rows: Sequence[Mapping[str, str]]) -> dict[str, list[float]]:
     samples: dict[str, list[float]] = defaultdict(list)
+    coordinates: dict[tuple[str, int, str, str, str], set[str]] = defaultdict(set)
     for line_number, row in enumerate(rows, start=2):
         pipeline = row["pipeline"]
         try:
+            seed = int(row["seed"])
             latency_ms = float(row["latency_ms"])
         except ValueError as exc:
             raise AnchorInputError(f"invalid overhead number on line {line_number}") from exc
-        if pipeline not in {"minimal", "full"} or not math.isfinite(latency_ms) or latency_ms < 0:
+        identity_fields = ("pair_id", "host_id", "load_profile", "sample_id")
+        if (
+            pipeline not in {"minimal", "full"}
+            or seed < 0
+            or any(not row[field].strip() for field in identity_fields)
+            or not math.isfinite(latency_ms)
+            or latency_ms < 0
+        ):
             raise AnchorInputError(f"invalid overhead row on line {line_number}")
+        coordinate = (
+            row["pair_id"],
+            seed,
+            row["host_id"],
+            row["load_profile"],
+            row["sample_id"],
+        )
+        if pipeline in coordinates[coordinate]:
+            raise AnchorInputError(f"duplicate overhead coordinate on line {line_number}")
+        coordinates[coordinate].add(pipeline)
         samples[pipeline].append(latency_ms)
     if set(samples) != {"minimal", "full"}:
         raise AnchorInputError("overhead must contain minimal and full pipeline samples")
+    if any(pipelines != {"minimal", "full"} for pipelines in coordinates.values()):
+        raise AnchorInputError("overhead samples must be paired on pair/seed/host/load/sample")
+    if len({coordinate[1] for coordinate in coordinates}) < 5:
+        raise AnchorInputError("overhead requires at least five paired seeds")
     return dict(samples)
 
 

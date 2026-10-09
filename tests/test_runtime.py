@@ -18,14 +18,14 @@ from harness.runtime import run_storm
 from harness.topology import SwitchLaunchConfig
 
 
-def _config(tmp_path: Path) -> StormConfig:
+def _config(tmp_path: Path, system: str = "fifo") -> StormConfig:
     task_script = tmp_path / "tasks.json"
     task_script.write_text(
         json.dumps([{"tool": "compute", "arguments": {"expression": "1+1"}}]),
         encoding="utf-8",
     )
     return StormConfig(
-        system="fifo",
+        system=system,
         link_mbps=20,
         agent_share_pct=30,
         burst_intensity="low",
@@ -48,6 +48,19 @@ class _Session(AbstractContextManager[object]):
     def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
         del exc_type, exc_value, traceback
         self._events.append("topology-stop")
+
+
+class _ControllerSession(AbstractContextManager[dict[str, object]]):
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    def __enter__(self) -> dict[str, object]:
+        self._events.append("controller-start")
+        return {"ready": True}
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        del exc_type, exc_value, traceback
+        self._events.append("controller-stop")
 
 
 def test_run_storm_owns_topology_around_network_workload(tmp_path: Path) -> None:
@@ -103,6 +116,30 @@ def test_run_storm_stops_topology_when_workload_fails(tmp_path: Path) -> None:
     assert events == ["topology-start", "workload", "topology-stop"]
 
 
+def test_ours_run_wraps_workload_in_controller_lifecycle(tmp_path: Path) -> None:
+    config = _config(tmp_path, "ours")
+    p4_json = tmp_path / "agent_aware.json"
+    p4_json.write_text("{}", encoding="utf-8")
+    events: list[str] = []
+
+    run_storm(
+        config,
+        p4_json,
+        build_storm_plan(config),
+        session_factory=lambda switch_config: _Session(events),
+        controller_factory=lambda switch_config, output_dir: _ControllerSession(events),
+        network_runner=lambda network, runtime_config, runtime_plan: events.append("workload"),
+    )
+
+    assert events == [
+        "topology-start",
+        "controller-start",
+        "workload",
+        "controller-stop",
+        "topology-stop",
+    ]
+
+
 class _Process:
     def __init__(self, running: bool = False, exit_code: int = 0) -> None:
         self.exit_code = exit_code
@@ -126,6 +163,37 @@ class _Process:
         if self.returncode is None:
             self.returncode = self.exit_code
         return self.returncode
+
+
+class _PolicyApi:
+    def read_register(self, register_name: str, index: int | None = None) -> tuple[int, ...]:
+        assert register_name == "policy_version"
+        assert index == 0
+        return (7,)
+
+
+def test_controller_session_records_positive_policy_readiness(tmp_path: Path) -> None:
+    p4_json = tmp_path / "agent_aware.json"
+    p4_json.write_text("{}", encoding="utf-8")
+    process = _Process(running=True)
+
+    def start_process(command: tuple[str, ...], log_path: Path) -> tuple[_Process, object]:
+        assert command[1:3] == ("-m", "controller.app")
+        return process, log_path.open("w", encoding="utf-8")
+
+    with runtime.ControllerSession(
+        SwitchLaunchConfig(p4_json=p4_json),
+        tmp_path / "run",
+        process_starter=start_process,
+        api=_PolicyApi(),  # type: ignore[arg-type]
+    ) as evidence:
+        assert evidence["policy_version"] == 7
+
+    saved = json.loads((tmp_path / "run" / "controller_lifecycle.json").read_text(encoding="utf-8"))
+    assert saved["ready"] is True
+    assert saved["status"] == "stopped"
+    assert saved["workload_succeeded"] is True
+    assert process.terminated
 
 
 class _Host:
@@ -355,9 +423,46 @@ def test_run_summary_retains_coordinates_class_metrics_and_completion_times(
     assert summary["classes"]["HUMAN_INTERACTIVE"]["p99_ms"] == pytest.approx(10.0)
     assert summary["latency_method"] == "matched_two_tap"
     assert summary["latency_match"]["coverage"] == 1.0
+    assert {
+        class_name: evidence["matched_packets"]
+        for class_name, evidence in summary["latency_match"]["classes"].items()
+    } == {
+        "HUMAN_INTERACTIVE": 1,
+        "AGENT_INTERACTIVE": 1,
+        "AGENT_BULK": 1,
+    }
     assert summary["tool_completion"]["count"] == 1
     assert summary["tool_completion"]["p99_ms"] == pytest.approx(25.0)
     assert summary["agent_attempts"]["attempted"] == 12
     assert summary["agent_attempts"]["completed"] == 9
     assert summary["agent_attempts"]["failed"] == 3
     assert summary["corpus"]["verification_rate"] == 1.0
+
+
+def test_run_summary_rejects_a_class_without_two_tap_matches(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.output_dir.mkdir()
+    (config.output_dir / "packet_telemetry.tsv").write_text(
+        "10.010\t10.0.0.2\t10.0.0.100\t1000\t\t0x10\t6\t5000\t5201\t100\t1\t946\t0x18\n",
+        encoding="utf-8",
+    )
+    (config.output_dir / "ingress_packet_telemetry.tsv").write_text(
+        "10.000\t10.0.0.2\t10.0.0.100\t1000\t\t0x10\t6\t5000\t5201\t100\t1\t946\t0x18\n",
+        encoding="utf-8",
+    )
+    windows = (
+        CaptureWindow(
+            IPv4Address("10.0.0.2"),
+            Decimal("10"),
+            Decimal("15"),
+            TrafficClass.HUMAN_INTERACTIVE,
+            "iperf-human",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="every training class"):
+        runtime.write_run_summary(
+            config,
+            windows,
+            CorpusVerification(1, 1, 1.0, {"iperf-human": 1}),
+        )
