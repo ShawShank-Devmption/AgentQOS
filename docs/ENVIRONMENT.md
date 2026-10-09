@@ -17,6 +17,13 @@
 | P4 toolchain | p4c + BMv2 built via the `jafingerhut/p4-guide` install script (§3) |
 | Mininet | 2.3.x (installed by the same script) |
 
+The P4 compile gate in CI uses `p4lang/p4c` at digest
+`sha256:f15bb88aed8eda8d354da4d02ab7ed1e246f96556d8260100bc98b6ddfe5a71e`
+(`p4c 1.2.5.18`, bundled `simple_switch 1.15.7`). Run `make ptf-parser`
+to compile and exercise the parser with this image. The VM's BMv2 and Mininet
+commits still need to be recorded from the first Linux installation before
+P0.4 can be signed off.
+
 Create the VM:
 
 ```bash

@@ -7,6 +7,8 @@ PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3.11)
 PYTHON39 ?= python3.9
 P4_PROGRAMS := $(wildcard p4src/l2fwd.p4 p4src/agent_aware.p4)
 P4_OUTPUTS := $(patsubst p4src/%.p4,build/%.json,$(P4_PROGRAMS))
+P4_FRAGMENTS := $(filter-out $(P4_PROGRAMS),$(wildcard p4src/*.p4))
+P4C_IMAGE := p4lang/p4c@sha256:f15bb88aed8eda8d354da4d02ab7ed1e246f96556d8260100bc98b6ddfe5a71e
 CONFIG ?=
 PCAP ?=
 ORCHESTRATION_LOG ?=
@@ -19,7 +21,7 @@ ANCHOR_REPORT ?= results/aggregates/anchors.json
 SANITY_CONFIGS := fifo_sanity diffserv_sanity fairq_sanity app_limiter_sanity
 GRID_CONFIGS := burst_sweep_v1 fifo_burst_sweep_v1 diffserv_burst_sweep_v1 fairq_burst_sweep_v1 app_limiter_burst_sweep_v1
 
-.PHONY: lint fmt test build dev-env smoke-m1 corpus preflight experiment baseline-sanity full-grid aggregate anchors figures review-config review-1-host check-py39
+.PHONY: lint fmt test build dev-env smoke-m1 corpus preflight experiment baseline-sanity full-grid aggregate anchors figures ptf-parser review-config review-1-host check-py39
 
 lint:
 	$(RUFF) check .
@@ -42,9 +44,14 @@ check-py39:
 # Compile top-level programs only; the remaining p4src files are include fragments.
 build: $(P4_OUTPUTS)
 
-build/%.json: p4src/%.p4
+build/%.json: p4src/%.p4 $(P4_FRAGMENTS)
 	@mkdir -p build
 	p4c-bm2-ss --std p4-16 -o $@ $<
+
+# Container-only parser PTF check; full Mininet smoke still requires the Linux VM.
+ptf-parser:
+	docker run --rm --platform linux/amd64 --cap-add NET_ADMIN --cap-add NET_RAW \
+		-v $(CURDIR):/work -w /work $(P4C_IMAGE) sh tests/ptf/run_parser.sh
 
 # verify the pinned toolchain exists (docs/ENVIRONMENT.md §5); run inside the Linux VM
 dev-env:

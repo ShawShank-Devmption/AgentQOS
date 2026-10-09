@@ -19,3 +19,11 @@ Still open until approved:
   as `FlowState.payload_seen`. Proposal: bit 15 of `reg_proto_meta` (`ext_count` ≤ 16 needs only
   bits 8–12). The fixture's packed `reg_proto_meta` would then carry `0x8000` once any payload
   is seen. This needs Dev A's agreement before the PTF replay.
+
+## Parser handoff context
+
+The P2.1 parser currently uses a provisional, parser-local SNI bucket (0 absent, 1 for 1–32 bytes,
+2 for 33–128, 3 for longer names) and one-hot ALPN flags. These are tested parser outputs, not an
+The numeric ALPN feature and packed `reg_proto_meta` proposal live in
+`docs/feature_arithmetic.md`; approval and PTF equivalence remain required before either becomes a
+frozen contract.

@@ -29,11 +29,13 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 "controller/**" = ["UP", "B905"]  # Python 3.9 has no zip(strict=)
 "common/**" = ["UP", "B905"]  # imported by the 3.9 controller
+"tests/ptf/**" = ["N802"]  # unittest/PTF requires runTest
 
 [tool.ruff.format]
 quote-style = "double"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = ["tests/ptf"]
 pythonpath = ["."]
 addopts = "-q"
