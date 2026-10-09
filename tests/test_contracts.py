@@ -17,14 +17,25 @@ from common.contracts import (
     FEATURE_BIT_WIDTHS,
     FEATURE_CHECKPOINTS,
     FEATURE_ORDER,
+    FIRST_TIMESTAMP_REGISTER,
     FLOW_OVERRIDE_TABLE,
     FLOW_SLOTS,
     LABEL_FIELDS,
+    METER_AGENT_BULK,
+    METER_AGENT_INTERACTIVE,
+    METER_PRESETS,
+    METER_SELECT,
+    PRESET_NORMAL,
+    PRESET_PROTECTIVE,
     PUNT_FILTER_TABLE,
     REGISTER_NAMES,
     TABLE_NAMES,
+    TIMING_BURST_FEATURES,
     TRAINING_LABELS,
+    TREE_KEY_FIELDS,
     TREE_TABLE_NAMES,
+    UPDOWN_RATIO_SCALE,
+    AlpnClass,
     TrafficClass,
 )
 
@@ -139,3 +150,24 @@ def test_frozen_repository_layout_exists() -> None:
         "docs",
     )
     assert all((PROJECT_ROOT / directory).is_dir() for directory in expected_directories)
+
+
+def test_p24_feature_arithmetic_contracts() -> None:
+    assert FIRST_TIMESTAMP_REGISTER in REGISTER_NAMES
+    assert [alpn.value for alpn in AlpnClass] == [0, 1, 2, 3]
+    assert UPDOWN_RATIO_SCALE == (1 << 6) + (1 << 5) + (1 << 2)
+    assert set(TIMING_BURST_FEATURES) <= set(FEATURE_ORDER)
+    assert ("tree_node", *FEATURE_ORDER) == TREE_KEY_FIELDS
+
+
+def test_meter_select_covers_every_class_meter() -> None:
+    assert {t.meter_name for t in CLASS_TREATMENTS.values()} == set(METER_SELECT)
+    assert sorted(METER_SELECT.values()) == [0, 1, 2]
+
+
+def test_meter_presets_are_two_rate_and_protective_caps_agents_at_30_pct() -> None:
+    assert set(METER_PRESETS) == {PRESET_NORMAL, PRESET_PROTECTIVE}
+    for shares in METER_PRESETS.values():
+        assert set(shares) == {METER_AGENT_INTERACTIVE, METER_AGENT_BULK}
+        assert all(0 < s.cir_pct < s.pir_pct <= 100 for s in shares.values())
+    assert sum(s.cir_pct for s in METER_PRESETS[PRESET_PROTECTIVE].values()) == 30

@@ -183,10 +183,10 @@ class _RecordingSwitchApi:
     def __init__(self, events: list[str]) -> None:
         self._events = events
 
-    def run_commands(self, commands: tuple[str, ...]) -> str:
+    def execute(self, commands: tuple[str, ...]) -> tuple[str, ...]:
         assert commands == forwarding_commands()
         self._events.append("program")
-        return ""
+        return tuple("" for _ in commands)
 
 
 def test_topology_session_builds_programs_and_always_stops(

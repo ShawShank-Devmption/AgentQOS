@@ -109,7 +109,7 @@ class TopologySession(AbstractContextManager[Any]):
             self._network = network
             network.build()
             network.start()
-            SwitchApi(self._config.cli_path, self._config.thrift_port).run_commands(
+            SwitchApi(self._config.cli_path, self._config.thrift_port).execute(
                 forwarding_commands()
             )
             return network

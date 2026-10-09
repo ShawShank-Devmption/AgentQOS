@@ -72,6 +72,7 @@ TABLE_NAMES: Final = TREE_TABLE_NAMES + (
 
 FLOW_KEY_REGISTER: Final = "reg_flow_key"
 LAST_TIMESTAMP_REGISTER: Final = "reg_last_ts"
+FIRST_TIMESTAMP_REGISTER: Final = "reg_first_ts"
 IAT_EWMA_REGISTER: Final = "reg_iat_ewma"
 IAT_VARIANCE_EWMA_REGISTER: Final = "reg_iat_var_ewma"
 PACKET_COUNT_REGISTER: Final = "reg_pkt_count"
@@ -88,6 +89,7 @@ COLLISION_COUNTER_REGISTER: Final = "reg_collision_ctr"
 REGISTER_NAMES: Final = (
     FLOW_KEY_REGISTER,
     LAST_TIMESTAMP_REGISTER,
+    FIRST_TIMESTAMP_REGISTER,
     IAT_EWMA_REGISTER,
     IAT_VARIANCE_EWMA_REGISTER,
     PACKET_COUNT_REGISTER,
@@ -183,3 +185,69 @@ MIN_LINK_MBPS: Final = 10
 MAX_LINK_MBPS: Final = 50
 MIN_AGENT_SHARE_PCT: Final = 10
 MAX_AGENT_SHARE_PCT: Final = 90
+
+# --- P2.4 feature arithmetic (docs/feature_arithmetic.md) ---------------------------------
+
+
+class AlpnClass(IntEnum):
+    """Encoding of feature 8, `tls_alpn_class` (first ALPN protocol offered)."""
+
+    NONE = 0
+    H1 = 1
+    H2 = 2
+    OTHER = 3
+
+
+TIMESTAMP_BITS: Final = 48
+FIRST_SIZE_LARGE_BYTES: Final = 128
+UPDOWN_RATIO_SCALE: Final = 100
+FLOW_AGE_SHIFT: Final = 10
+TLS_MAX_EXTENSIONS: Final = 16
+CM_SKETCH_COUNTER_BITS: Final = 16
+PROTO_META_EXT_COUNT_SHIFT: Final = 8
+FLOW_KEY_SLOT_SALT: Final = 0
+FLOW_KEY_TAG_SALT: Final = 1
+TIMING_BURST_FEATURES: Final = ("iat_ewma_us", "iat_var_ewma", "fanout_new_flows")
+
+# --- P4 table/action signatures the controller writes (design.md section 4.2) --------------
+TREE_NODE_FIELD: Final = "tree_node"
+TREE_NODE_BITS: Final = 16
+TREE_KEY_FIELDS: Final = (TREE_NODE_FIELD, *FEATURE_ORDER)
+TREE_NEXT_ACTION: Final = "tree_next"
+TREE_LEAF_ACTION: Final = "tree_leaf"
+CLASS_ACTION_NAME: Final = "set_class_action"
+PUNT_ACTION: Final = "punt"
+METER_SELECT: Final[Mapping[str | None, int]] = MappingProxyType(
+    {None: 0, METER_AGENT_INTERACTIVE: 1, METER_AGENT_BULK: 2}
+)
+
+# --- Meter presets, indexed by reg_congestion_flag (design.md sections 5.5, 6.5) -------------
+PRESET_NORMAL: Final = 0
+PRESET_PROTECTIVE: Final = 1
+
+
+@dataclass(frozen=True)
+class MeterShare:
+    """Two-rate meter rates as percentages of the bottleneck link."""
+
+    cir_pct: int
+    pir_pct: int
+
+
+METER_PRESETS: Final[Mapping[int, Mapping[str, MeterShare]]] = MappingProxyType(
+    {
+        PRESET_NORMAL: MappingProxyType(
+            {
+                METER_AGENT_INTERACTIVE: MeterShare(cir_pct=50, pir_pct=80),
+                METER_AGENT_BULK: MeterShare(cir_pct=30, pir_pct=60),
+            }
+        ),
+        PRESET_PROTECTIVE: MappingProxyType(
+            {
+                METER_AGENT_INTERACTIVE: MeterShare(cir_pct=20, pir_pct=25),
+                METER_AGENT_BULK: MeterShare(cir_pct=10, pir_pct=15),
+            }
+        ),
+    }
+)
+METER_BURST_BYTES: Final = 15_000
