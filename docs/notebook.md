@@ -131,3 +131,21 @@ needed before merge. The current implemented controller is a standalone Thrift/A
 while the design describes Ryu. Its implementation and the paper must be reconciled before a Ryu
 claim. SNI length bucket and cipher count are not exposed in the frozen classifier vector; the
 parser currently records extension count and ALPN for the classifier.
+
+## 2026-10-31 — First Linux evidence on the GCP VM (`agent-qos-p4dev`, asia-south2-a)
+
+Repo synced at `47c6023`. Gates on the VM: `make lint` green; `make test` 484 passed with the
+three PTF modules wrongly collected by plain pytest; `make check-py39` 153 passed; `make build`
+compiled `l2fwd`, `agent_aware`, `diffserv` with real `p4c-bm2-ss`. PTF on real BMv2:
+`test_diffserv` OK; `test_parser` aborted by a harness error (AF_PACKET `EINVAL` on the <14-byte
+`short_ethernet` frame); `test_agent_pipeline` failed `reg_cm_sketch_0 == 1` (read 2 after one
+ClientHello). M1 Mininet smoke passed at 18.8 Mbps on the 20 Mbps `choke_v1` link.
+
+`review_1_smoke` (seed 1, 30 % share, low burst, 20 Mbps, 30 s) completed with success for ours,
+fifo and diffserv — the first measured runs. HUMAN p99: ours 601 ms, fifo 112 ms, diffserv 111 ms;
+latency identical across classes within each system, so the ~490 ms is pipeline processing
+overhead, not queue differentiation. Live classification under ours collapsed to HUMAN
+(precision 0.014; AGENT_INTERACTIVE recall 0; AGENT_BULK recall 0.38–0.45): the UDP stress
+workload is not a trained shape. Neither anchor holds in this configuration. Follow-up tasks
+C0–C4 and D2–D3 in `docs/demo_tasks.md`. Evidence: `results/linux-live/`, `results/linux-ptf/`
+on the VM (append-only; copy off per I6).
