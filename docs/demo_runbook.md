@@ -88,6 +88,46 @@ harness/gateway/vm.sh ssh --command 'cd ~/cn_project/results && tar -czf - linux
   >"$D/evidence.tar.gz" && shasum -a 256 "$D/evidence.tar.gz" >"$D/SHA256SUMS"
 ```
 
+### Granting a teammate VM access (project owner)
+
+```sh
+P=vivid-rush-513007-k5
+U=teammate@example.com
+gcloud projects add-iam-policy-binding $P --member=user:$U \
+  --role=roles/iap.tunnelResourceAccessor --condition=None
+gcloud projects add-iam-policy-binding $P --member=user:$U --role=roles/compute.viewer --condition=None
+gcloud compute instances add-iam-policy-binding agent-qos-p4dev --zone=asia-south2-a --project=$P \
+  --member=user:$U --role=roles/compute.instanceAdmin.v1
+```
+
+`instanceAdmin.v1` is granted on this one VM only (start/stop/SSH), not the whole project. The
+project sits in an organization; a domain-restriction policy may reject outside accounts, in which
+case grant the teammate's organization account instead.
+
+### Labelled corpus sessions (real traffic, ground truth from orchestration)
+
+One session = one device doing one kind of activity. Everything the device sends during the
+session gets the session's label (design.md §4.4, §7.20), so the device must do nothing else:
+close other apps and background sync before starting.
+
+```sh
+harness/gateway/vm.sh capture-start call-01 shashank-phone HUMAN_INTERACTIVE video-call
+#   ... only now start the activity (e.g. a 3-minute video call), then end it ...
+harness/gateway/vm.sh capture-stop call-01        # prints session.json; status must be "complete"
+```
+
+- Session names are new each time (`call-02`, …); existing directories are never reused.
+- Labels: `HUMAN_INTERACTIVE`, `AGENT_INTERACTIVE`, `AGENT_BULK`. The last argument names the
+  activity/framework and becomes `source_framework` in `labels.csv`.
+- Output on the VM: `results/corpus/SESSION/{capture.pcap, labels.csv, session.json, tcpdump.log}`.
+  Full packets of your own devices only; never run a session with someone else's device.
+- TCP flows already open when capture started are excluded (their first packets are missing);
+  the count is `excluded_midstream_tcp_flows` in `session.json`. UDP/QUIC flows cannot be told
+  apart this way, so start the activity after `capture-start` returns and avoid long-lived apps.
+- A session with kernel packet drops is marked `failed` and gets no labels; repeat it.
+- Features for training: on the VM,
+  `.venv/bin/python -m ml.extract_features results/corpus/S/capture.pcap results/corpus/S/labels.csv --output results/corpus/S/features.csv`.
+
 ## 2. Demo sequence
 
 To be written by task D7 (FIFO run, then ours, dashboard, live devices).

@@ -40,10 +40,12 @@ def test_vm_helper_without_command_prints_usage() -> None:
 def _run_vm_with_fake_gcloud(tmp_path: Path, *args: str) -> list[str]:
     log = tmp_path / "gcloud.args"
     fake = tmp_path / "gcloud"
-    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$AAN_FAKE_LOG"\n')
+    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$AAN_FAKE_LOG"\ncat >"$AAN_FAKE_LOG.stdin"\n')
     fake.chmod(0o755)
     env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}", "AAN_FAKE_LOG": str(log)}
-    subprocess.run(["bash", str(GATEWAY / "vm.sh"), *args], env=env, check=True)
+    subprocess.run(
+        ["bash", str(GATEWAY / "vm.sh"), *args], env=env, check=True, stdin=subprocess.DEVNULL
+    )
     return log.read_text().splitlines()
 
 
@@ -71,3 +73,41 @@ def test_vm_helper_rejects_unsafe_device_name() -> None:
     )
     assert result.returncode == 2
     assert "invalid device name" in result.stderr
+
+
+def test_vm_capture_start_sends_validated_session_to_vm(tmp_path: Path) -> None:
+    argv = _run_vm_with_fake_gcloud(
+        tmp_path, "capture-start", "call-1", "shashank-phone", "HUMAN_INTERACTIVE", "video-call"
+    )
+    assert argv[argv.index("--command") + 1] == (
+        "bash -s -- call-1 shashank-phone HUMAN_INTERACTIVE video-call gw-lan-sw"
+    )
+    remote = (tmp_path / "gcloud.args.stdin").read_text()
+    assert "/etc/aan-gateway/peers/$device.conf" in remote
+    assert 'python -m harness.capture start "results/corpus/$session"' in remote
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ("call-1", "shashank-phone", "UNKNOWN", "video-call"),
+        ("../x", "shashank-phone", "AGENT_BULK", "crawl"),
+        ("call-1", "shashank-phone", "AGENT_BULK", "a;b"),
+        ("call-1", "", "AGENT_BULK", "crawl"),
+    ],
+)
+def test_vm_capture_start_rejects_unsafe_arguments(tmp_path: Path, args: tuple[str, ...]) -> None:
+    log = tmp_path / "gcloud.args"
+    fake = tmp_path / "gcloud"
+    fake.write_text('#!/bin/sh\ntouch "$AAN_FAKE_LOG"\n')
+    fake.chmod(0o755)
+    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}", "AAN_FAKE_LOG": str(log)}
+    result = subprocess.run(
+        ["bash", str(GATEWAY / "vm.sh"), "capture-start", *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    assert result.returncode == 2
+    assert not log.exists()

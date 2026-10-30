@@ -10,6 +10,7 @@ PROJECT=${AAN_PROJECT:-vivid-rush-513007-k5}
 VENV_SRC=${AAN_VENV_SRC:-'~/agent-aware-net-final'}
 PROFILES=${AAN_PROFILES:-$HOME/.aan-gateway}
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+. "$ROOT/harness/gateway/gateway.env"
 
 usage() {
 	cat >&2 <<'EOF'
@@ -23,6 +24,10 @@ usage: harness/gateway/vm.sh COMMAND
   add-device NAME            new WireGuard profile; QR + .conf saved under ~/.aan-gateway
   revoke-device NAME         remove a device's access
   tunnel                     forward VM localhost:8080 (dashboard) to http://localhost:8080
+  capture-start SESSION DEVICE LABEL ACTIVITY
+                             full-packet capture of DEVICE's traffic; LABEL is HUMAN_INTERACTIVE,
+                             AGENT_INTERACTIVE or AGENT_BULK; start the activity only afterwards
+  capture-stop SESSION       stop it; writes results/corpus/SESSION/labels.csv on the VM
 EOF
 	exit 2
 }
@@ -36,6 +41,28 @@ ssh_vm() {
 device_name() {
 	[[ ${1:-} =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]] || { echo "vm.sh: invalid device name" >&2; exit 2; }
 	echo "$1"
+}
+
+slug() {
+	[[ ${1:-} =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || { echo "vm.sh: invalid name '${1:-}'" >&2; exit 2; }
+	echo "$1"
+}
+
+training_label() {
+	[[ ${1:-} =~ ^(HUMAN_INTERACTIVE|AGENT_INTERACTIVE|AGENT_BULK)$ ]] \
+		|| { echo "vm.sh: invalid label '${1:-}'" >&2; exit 2; }
+	echo "$1"
+}
+
+capture_start() {
+	ssh_vm --command "bash -s -- $1 $2 $3 $4 $AAN_LAN_SW" <<'REMOTE'
+set -euo pipefail
+session=$1 device=$2 label=$3 activity=$4 interface=$5
+ip=$(sudo awk '/^AllowedIPs/ {sub("/32", "", $3); print $3}' "/etc/aan-gateway/peers/$device.conf")
+cd ~/cn_project
+sudo .venv/bin/python -m harness.capture start "results/corpus/$session" \
+	--interface "$interface" --device-ip "$ip" --label "$label" --framework "$activity"
+REMOTE
 }
 
 sync_tree() {
@@ -104,5 +131,18 @@ revoke-device)
 	rm -f "$PROFILES/$name.conf" "$PROFILES/$name.png"
 	;;
 tunnel) ssh_vm -- -N -L 8080:localhost:8080 ;;
+capture-start)
+	# Assignments, not inline arguments: set -e ignores a failing $(...) inside an argument list.
+	session=$(slug "${2:-}")
+	device=$(device_name "${3:-}")
+	label=$(training_label "${4:-}")
+	activity=$(slug "${5:-}")
+	capture_start "$session" "$device" "$label" "$activity"
+	;;
+capture-stop)
+	session=$(slug "${2:-}")
+	ssh_vm --command "cd ~/cn_project && sudo .venv/bin/python -m harness.capture stop \
+		results/corpus/$session; cat results/corpus/$session/session.json"
+	;;
 *) usage ;;
 esac

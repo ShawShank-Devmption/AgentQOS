@@ -177,3 +177,16 @@ whether the switch-facing names move into `common/contracts.py`.
 
 Evidence of the first Linux run archived to `results/vm-evidence/2026-10-31/evidence.tar.gz`
 (SHA-256 `f7bfe5f6…1967165`).
+
+## 2026-10-31 — Labelled corpus sessions through the gateway (P3.4/P3.8 → G6)
+
+`harness/capture.py` now runs capture sessions (`python -m harness.capture start|stop`, wrapped by
+`vm.sh capture-start|capture-stop`): full-packet tcpdump of one device's tunnel address on
+`gw-lan-sw`, orchestration window = [listening, stop], labels via the existing
+`label_pcap_flows` in the frozen §4.4 schema. Safeguards: new session directory only (§7.19);
+kernel/interface drops fail the session without labels; `validate_capture` before labelling;
+TCP flows whose first captured packet is not the device's SYN are excluded and counted, so
+checkpoint features match what the switch would compute for a new flow. Under sudo, tcpdump drops
+to the invoking user, who owns the session directory. Host tests use a fake tcpdump; the first real
+session on the VM is the runtime check. Labels are per device and window: other traffic from the
+device during a session inherits the label (operator keeps the device otherwise idle).
