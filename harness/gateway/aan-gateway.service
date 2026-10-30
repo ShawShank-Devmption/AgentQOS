@@ -1,0 +1,13 @@
+[Unit]
+Description=Agent-Aware Networking live gateway (WireGuard netns, switch ports, NAT, bypass)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/aan-gateway/netsetup.sh
+ExecStop=/usr/local/lib/aan-gateway/teardown.sh
+
+[Install]
+WantedBy=multi-user.target
