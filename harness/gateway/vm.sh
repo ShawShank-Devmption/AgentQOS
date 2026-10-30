@@ -35,7 +35,8 @@ EOF
 # gcloud flags go before "$@": anything after "--" in "$@" is passed to ssh itself.
 instances() { gcloud compute instances "$1" "$VM" --zone="$ZONE" --project="$PROJECT" "${@:2}"; }
 ssh_vm() {
-	gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" --tunnel-through-iap --quiet "$@"
+	# --verbosity=error hides the IAP tunnel's NumPy performance warning (harmless at our rates).
+	gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" --tunnel-through-iap --quiet --verbosity=error "$@"
 }
 
 device_name() {
@@ -102,8 +103,27 @@ fetch_profile() {
 	echo "both hold the device's private key; delete them once imported"
 }
 
+wait_for_ssh() {
+	local attempt
+	for attempt in $(seq 1 18); do
+		if ssh_vm --command true </dev/null >/dev/null 2>&1; then
+			echo "vm.sh: VM is up"
+			return 0
+		fi
+		echo "vm.sh: waiting for the VM to boot ($attempt/18)" >&2
+		sleep 10
+	done
+	echo "vm.sh: VM did not accept SSH within 3 minutes" >&2
+	return 1
+}
+
 case "${1:-}" in
-start) instances start ;;
+start)
+	# RUNNING only means the VM was scheduled; sshd needs another 30-60 s, and IAP reports
+	# "4003: failed to connect to backend" until it is up.
+	instances start
+	wait_for_ssh
+	;;
 stop) instances stop ;;
 status)
 	instances describe \

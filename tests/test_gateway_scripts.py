@@ -111,3 +111,10 @@ def test_vm_capture_start_rejects_unsafe_arguments(tmp_path: Path, args: tuple[s
     )
     assert result.returncode == 2
     assert not log.exists()
+
+
+def test_vm_start_waits_until_ssh_answers(tmp_path: Path) -> None:
+    argv = _run_vm_with_fake_gcloud(tmp_path, "start")
+    # The fake succeeds at once, so the last recorded call is the SSH readiness probe.
+    assert argv[:2] == ["compute", "ssh"]
+    assert argv[-2:] == ["--command", "true"]
