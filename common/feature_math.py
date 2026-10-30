@@ -19,7 +19,10 @@ from common.contracts import (
     FLOW_KEY_SLOT_SALT,
     FLOW_KEY_TAG_SALT,
     FLOW_SLOTS,
+    PROTO_META_EXT_COUNT_MASK,
     PROTO_META_EXT_COUNT_SHIFT,
+    PROTO_META_PAYLOAD_SEEN,
+    PROTO_META_RESERVED_MASK,
     TIMESTAMP_BITS,
     TLS_MAX_EXTENSIONS,
     UPDOWN_RATIO_SCALE,
@@ -113,14 +116,34 @@ def flow_age_ms(now_us: int, first_us: int) -> int:
     return timestamp_delta_us(now_us, first_us) >> FLOW_AGE_SHIFT
 
 
-def pack_proto_meta(ext_count: int, alpn: AlpnClass) -> int:
-    """Pack features 7-8 the way reg_proto_meta stores them."""
-    return (ext_count << PROTO_META_EXT_COUNT_SHIFT) | int(alpn)
+def pack_proto_meta(ext_count: int, alpn: AlpnClass, payload_seen: bool = False) -> int:
+    """Pack bounded TLS features and the ingress-owned first-payload observation flag."""
+    if (
+        isinstance(ext_count, bool)
+        or not isinstance(ext_count, int)
+        or not 0 <= ext_count <= TLS_MAX_EXTENSIONS
+    ):
+        raise ValueError("extension count outside the bounded parser range")
+    if not isinstance(alpn, AlpnClass) or not isinstance(payload_seen, bool):
+        raise ValueError("invalid ALPN or payload-seen value")
+    return (
+        (ext_count << PROTO_META_EXT_COUNT_SHIFT)
+        | int(alpn)
+        | (PROTO_META_PAYLOAD_SEEN if payload_seen else 0)
+    )
 
 
 def unpack_proto_meta(value: int) -> tuple[int, AlpnClass]:
     """Unpack reg_proto_meta into (tls_ext_count, tls_alpn_class)."""
-    return (value >> PROTO_META_EXT_COUNT_SHIFT) & 0xFF, AlpnClass(value & 0xFF)
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < 1 << 16:
+        raise ValueError("protocol metadata must be an unsigned 16-bit integer")
+    if value & PROTO_META_RESERVED_MASK:
+        raise ValueError("protocol metadata uses reserved bits")
+    # §7.9: ingress bookkeeping must never leak into the frozen TLS feature vector.
+    count = (value >> PROTO_META_EXT_COUNT_SHIFT) & PROTO_META_EXT_COUNT_MASK
+    if count > TLS_MAX_EXTENSIONS:
+        raise ValueError("extension count outside the bounded parser range")
+    return count, AlpnClass(value & 0xFF)
 
 
 def parse_client_hello_meta(payload: bytes) -> tuple[int, AlpnClass]:

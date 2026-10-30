@@ -106,6 +106,24 @@ def test_proto_meta_round_trip() -> None:
     assert unpack_proto_meta(0x0302) == (3, AlpnClass.H2)
 
 
+def test_payload_seen_bit_does_not_become_a_tls_feature() -> None:
+    assert unpack_proto_meta(0x9002) == (16, AlpnClass.H2)
+    assert unpack_proto_meta(0x8000) == (0, AlpnClass.NONE)
+    assert pack_proto_meta(16, AlpnClass.H2, payload_seen=True) == 0x9002
+
+
+@pytest.mark.parametrize("value", [-1, 1 << 16, 0x2000, 0x1100, 0x0004])
+def test_proto_meta_rejects_invalid_packed_state(value: int) -> None:
+    with pytest.raises(ValueError):
+        unpack_proto_meta(value)
+
+
+@pytest.mark.parametrize("count", [-1, 17, True])
+def test_proto_meta_rejects_extension_counts_outside_the_parser_bound(count: int) -> None:
+    with pytest.raises(ValueError):
+        pack_proto_meta(count, AlpnClass.H2)
+
+
 @pytest.mark.parametrize(
     ("alpn_body", "expected"),
     [

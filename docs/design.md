@@ -162,6 +162,24 @@ that file is the single machine-readable source of truth; this section is its do
   carry a monotonically increasing `policy_version` stored in a switch register so a restarted
   controller can detect stale state and re-push the full policy.
 
+#### Proposed integration additions — 28 October 2026
+
+Approved for implementation by the project owner in this session; team review and the required
+contract PR approvals remain pending before merge. This does not alter existing class IDs,
+feature-vector order/widths, table names, CPU header or corpus/experiment schemas.
+
+- `tbl_flow_override` exact key order is canonical client IPv4 (32), server IPv4 (32), protocol
+  (8), client port (16), server port (16), matching `flow_key_bytes`. Its action is
+  `set_flow_class(bit<2> class)`; a miss leaves the tree/default decision unchanged. Both traffic
+  directions use the canonical key. Controller upserts/deletes discover current handles from
+  the switch; no handle survives a restart without reconciliation (§7.5).
+- `reg_proto_meta` bit 15 records that a first nonempty payload has already been observed.
+  Bits 8–12 hold the bounded extension count (0–16); bits 0–7 retain the ALPN enum; bits 13–14
+  are reserved zero. Ingress gates first-payload metadata commits, since the parser cannot read
+  slot registers. The flag is reset with every other slot register before a new claim (§7.11).
+  Masking the flag during decode preserves the ten-feature schema (§7.9). Payloads requiring
+  TCP reassembly remain unsupported and receive the documented fail-open treatment.
+
 ### 4.3 Feature vector (order frozen — tree compiler and P4 depend on it)
 
 | Idx | Name | Type/units | Computed |

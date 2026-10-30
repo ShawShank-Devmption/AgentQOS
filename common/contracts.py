@@ -30,6 +30,16 @@ class ClassTreatment:
 
 METER_AGENT_INTERACTIVE: Final = "M_AI"
 METER_AGENT_BULK: Final = "M_AB"
+METER_PUNT: Final = "M_PUNT"
+PUNT_RATE_PPS: Final = 100
+PUNT_BURST_PACKETS: Final = 20
+CPU_CLONE_SESSION: Final = 1
+CPU_PORT: Final = 255
+CPU_SWITCH_INTERFACE: Final = "s1-cpu"
+CPU_CONTROLLER_INTERFACE: Final = "aan-cpu"
+TARGET_SWITCH_PORT: Final = 4
+SENDER_SWITCH_PORTS: Final = (1, 2, 3)
+FLOOD_GROUP: Final = 1
 
 CLASS_TREATMENTS: Final[Mapping[TrafficClass, ClassTreatment]] = MappingProxyType(
     {
@@ -205,6 +215,11 @@ FLOW_AGE_SHIFT: Final = 10
 TLS_MAX_EXTENSIONS: Final = 16
 CM_SKETCH_COUNTER_BITS: Final = 16
 PROTO_META_EXT_COUNT_SHIFT: Final = 8
+# Proposed §4.2 integration additions; project-owner approved, team merge review pending.
+PROTO_META_EXT_COUNT_MASK: Final = 0x1F
+PROTO_META_PAYLOAD_SEEN: Final = 1 << 15
+PROTO_META_RESERVED_MASK: Final = 0x6000
+FLOW_OVERRIDE_KEY_BITS: Final = (32, 32, 8, 16, 16)
 FLOW_KEY_SLOT_SALT: Final = 0
 FLOW_KEY_TAG_SALT: Final = 1
 TIMING_BURST_FEATURES: Final = ("iat_ewma_us", "iat_var_ewma", "fanout_new_flows")
@@ -216,6 +231,7 @@ TREE_KEY_FIELDS: Final = (TREE_NODE_FIELD, *FEATURE_ORDER)
 TREE_NEXT_ACTION: Final = "tree_next"
 TREE_LEAF_ACTION: Final = "tree_leaf"
 CLASS_ACTION_NAME: Final = "set_class_action"
+FLOW_OVERRIDE_ACTION: Final = "set_flow_class"
 PUNT_ACTION: Final = "punt"
 METER_SELECT: Final[Mapping[str | None, int]] = MappingProxyType(
     {None: 0, METER_AGENT_INTERACTIVE: 1, METER_AGENT_BULK: 2}
