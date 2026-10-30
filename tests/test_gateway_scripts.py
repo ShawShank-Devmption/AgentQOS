@@ -37,6 +37,31 @@ def test_vm_helper_without_command_prints_usage() -> None:
     assert "usage: harness/gateway/vm.sh" in result.stderr
 
 
+def _run_vm_with_fake_gcloud(tmp_path: Path, *args: str) -> list[str]:
+    log = tmp_path / "gcloud.args"
+    fake = tmp_path / "gcloud"
+    fake.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >"$AAN_FAKE_LOG"\n')
+    fake.chmod(0o755)
+    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}", "AAN_FAKE_LOG": str(log)}
+    subprocess.run(["bash", str(GATEWAY / "vm.sh"), *args], env=env, check=True)
+    return log.read_text().splitlines()
+
+
+def test_vm_ssh_forwards_arguments(tmp_path: Path) -> None:
+    argv = _run_vm_with_fake_gcloud(tmp_path, "ssh", "--command", "uptime")
+    assert argv[:2] == ["compute", "ssh"]
+    assert "--tunnel-through-iap" in argv
+    assert argv[-2:] == ["--command", "uptime"]
+
+
+def test_vm_tunnel_keeps_gcloud_flags_before_ssh_args(tmp_path: Path) -> None:
+    argv = _run_vm_with_fake_gcloud(tmp_path, "tunnel")
+    separator = argv.index("--")
+    assert all(flag in argv[:separator] for flag in ("--tunnel-through-iap", "--quiet"))
+    assert any(arg.startswith("--zone=") for arg in argv[:separator])
+    assert argv[separator + 1 :] == ["-N", "-L", "8080:localhost:8080"]
+
+
 def test_vm_helper_rejects_unsafe_device_name() -> None:
     result = subprocess.run(
         ["bash", str(GATEWAY / "vm.sh"), "add-device", "x; rm -rf /"],

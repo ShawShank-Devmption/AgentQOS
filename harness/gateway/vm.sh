@@ -15,7 +15,7 @@ usage() {
 	cat >&2 <<'EOF'
 usage: harness/gateway/vm.sh COMMAND
   start | stop | status      VM lifecycle (stop whenever you are done; it bills per second)
-  ssh                        interactive shell
+  ssh [ARGS...]              shell, or pass gcloud/ssh args (e.g. --command 'uptime')
   sync                       copy the committed HEAD to ~/cn_project (results/ are kept)
   gate                       make lint, test, check-py39, build on the VM
   install-gateway            (re)install WireGuard gateway scripts and boot unit
@@ -82,7 +82,10 @@ status)
 	instances describe \
 		--format='value(name,status,machineType.basename(),networkInterfaces[0].accessConfigs[0].natIP)'
 	;;
-ssh) ssh_vm ;;
+ssh)
+	shift
+	ssh_vm "$@"
+	;;
 sync) sync_tree ;;
 gate)
 	ssh_vm --command 'cd ~/cn_project && make lint && make test \
