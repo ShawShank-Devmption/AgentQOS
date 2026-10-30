@@ -5,10 +5,17 @@ RUFF := $(if $(wildcard $(VENV_BIN)/ruff),$(VENV_BIN)/ruff,ruff)
 PYTEST := $(if $(wildcard $(VENV_BIN)/pytest),$(VENV_BIN)/pytest,pytest)
 PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3.11)
 PYTHON39 ?= python3.9
-P4_PROGRAMS := $(wildcard p4src/l2fwd.p4 p4src/agent_aware.p4)
+P4_PROGRAMS := $(wildcard p4src/l2fwd.p4 p4src/agent_aware.p4 p4src/diffserv.p4)
 P4_OUTPUTS := $(patsubst p4src/%.p4,build/%.json,$(P4_PROGRAMS))
+P4_SOURCES := $(wildcard p4src/*.p4)
+CONFIG ?= eval/configs/review_1_smoke.yaml
+OBSERVATIONS ?=
+FIGURES_DIR ?=
+SMOKE_OUTPUT ?=
+PIPELINE ?= build/l2fwd.json
 
-.PHONY: lint fmt test build dev-env review-config review-1-host check-py39
+.PHONY: lint fmt test build dev-env review-config review-1-host check-py39 \
+	check-generated host-check smoke experiment figures dashboard
 
 lint:
 	$(RUFF) check .
@@ -23,7 +30,8 @@ test:
 
 # controller/ runs in the Ryu 3.9 venv (docs/ENVIRONMENT.md section 4)
 PY39_TESTS := tests/test_feature_math.py tests/test_compiled_tree.py tests/test_switch_api.py \
-	tests/test_policy.py tests/test_app.py tests/test_contracts.py tests/test_tree_classify.py
+	tests/test_policy.py tests/test_app.py tests/test_contracts.py tests/test_tree_classify.py \
+	tests/test_ja4.py tests/test_punt_handler.py tests/test_reclassifier.py
 check-py39:
 	$(PYTHON39) -m compileall -q common controller
 	$(PYTHON39) -m pytest $(PY39_TESTS)
@@ -31,7 +39,7 @@ check-py39:
 # Compile top-level programs only; the remaining p4src files are include fragments.
 build: $(P4_OUTPUTS)
 
-build/%.json: p4src/%.p4
+build/%.json: p4src/%.p4 $(P4_SOURCES)
 	@mkdir -p build
 	p4c-bm2-ss --std p4-16 -o $@ $<
 
@@ -48,3 +56,27 @@ review-config:
 
 # Host-safe evidence gate. P4 compile and Mininet smoke still run in the documented Linux VM.
 review-1-host: lint test review-config
+
+check-generated:
+	$(PYTHON) -m ml.generate_headers --check
+
+# Host evidence and live Linux evidence are intentionally separate commands.
+host-check: lint check-generated test review-config
+
+# Use sudo from the supported Linux VM. An explicit new output path preserves evidence.
+# This is the M1 forwarding smoke; full classification/QoS smoke remains a later gate.
+smoke: build
+	@test -n "$(SMOKE_OUTPUT)" || { echo "Set SMOKE_OUTPUT to a new evidence directory"; exit 1; }
+	$(PYTHON) -m harness.runtime --pipeline "$(PIPELINE)" --output "$(SMOKE_OUTPUT)"
+
+experiment:
+	$(PYTHON) -m eval.run_experiment "$(CONFIG)" --plan
+
+figures:
+	@test -n "$(OBSERVATIONS)" -a -n "$(FIGURES_DIR)" || { \
+		echo "Set OBSERVATIONS and a new FIGURES_DIR"; exit 1; }
+	$(PYTHON) -m eval.plots "$(OBSERVATIONS)" --output-dir "$(FIGURES_DIR)"
+
+dashboard:
+	@test -n "$(OBSERVATIONS)" || { echo "Set OBSERVATIONS to measured JSON"; exit 1; }
+	$(PYTHON) -m dashboard.server "$(OBSERVATIONS)"

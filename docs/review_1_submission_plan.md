@@ -125,8 +125,9 @@ examples with project-specific content.
 - [x] `AGENTS.md` and `CLAUDE.md` are byte-identical.
 - [x] Ruff check and format check pass.
 - [x] Python unit tests pass on the host (34 tests).
-- [ ] `l2fwd.p4` compile: source is implemented; the CI image download did not complete on the
-      available connection.
+- [x] `l2fwd.p4` compiles with `p4c-bm2-ss` in the `p4lang/p4c` container (verified
+      11 September 2026; required renaming two control blocks that shadowed v1model package
+      types). Pinned native-Linux toolchain hashes are still outstanding.
 - [ ] Live `choke_v1` launch: requires the Linux VM with Mininet, BMv2, and iperf3.
 - [x] Controller register-response parsing is tested; a live switch read remains part of the Linux
       check above.

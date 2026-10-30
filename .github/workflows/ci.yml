@@ -27,8 +27,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install pytest scikit-learn pandas pyyaml scapy
-      - run: pytest
+      - run: pip install pytest scikit-learn pandas matplotlib pyyaml scapy
+      - run: python -m ml.generate_headers --check
+      - run: make test PYTHON=python
 
   controller-py39:
     runs-on: ubuntu-22.04
@@ -42,14 +43,10 @@ jobs:
 
   p4-compile:
     runs-on: ubuntu-22.04
-    container: p4lang/p4c:latest   # TODO(P0.4): pin to the digest matching the VM toolchain
+    # Existing compiler used for the recorded October 28 checks (p4c 1.2.5.17).
+    container: p4lang/p4c@sha256:cce724714a077ed6b476a2a66ca6906fa19dce4d8b385be91e61dfa359477bd3
     steps:
       - uses: actions/checkout@v4
       - name: Compile all P4 programs
-        run: |
-          if ls p4src/*.p4 >/dev/null 2>&1; then
-            for f in p4src/*.p4; do p4c-bm2-ss --std p4-16 -o /dev/null "$f"; done
-            echo "p4 compile OK"
-          else
-            echo "no p4src/*.p4 yet — skipping"
-          fi
+        # headers.p4/parser.p4 are includes, not standalone v1model programs.
+        run: make build
