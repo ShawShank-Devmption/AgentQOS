@@ -1,0 +1,604 @@
+<meta charset="utf-8">
+<title>Course Project Review 1 — Agent-Aware Networking</title>
+<style>
+  /* Theme mirrors Beamer_Presentation__3_.pdf: pale mint canvas, navy serif frametitles on a
+     pale-blue band, blue/green/amber tinted cards, footline with shorttitle + n/11. */
+  :root {
+    --navy:  #123B5E;
+    --blue:  #1F6FC4;
+    --teal:  #0F7B6C;
+    --amber: #E08A1E;
+    --band:  #DCE9F5;
+    --paper: #ECF4F2;
+    --blue-bg:  #EDF2FC;
+    --green-bg: #EAF4EF;
+    --amber-bg: #FDF1E2;
+    --ink: rgba(0,0,0,.85);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: #8f9e9b;
+    font-family: "Latin Modern Roman", "Computer Modern", Georgia, "Times New Roman", serif;
+    color: var(--ink);
+  }
+
+  .slide {
+    position: relative;
+    width: 1120px;
+    height: 630px;            /* 16:9, matches aspectratio=169 */
+    margin: 22px auto;
+    background: var(--paper);
+    box-shadow: 0 3px 14px rgba(0,0,0,.28);
+    overflow: hidden;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .frametitle {
+    background: var(--band);
+    color: var(--navy);
+    font-weight: 700;
+    font-size: 25px;
+    padding: 12px 34px 11px;
+    letter-spacing: .1px;
+  }
+
+  /* Body fills the space between frametitle and footline so content is optically centred
+     rather than hugging the top. */
+  .body {
+    position: absolute;
+    top: 52px;
+    left: 0; right: 0;
+    bottom: 46px;
+    padding: 20px 42px 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .body.tight { justify-content: flex-start; padding-top: 16px; }
+
+  /* ---- tinted cards (block / exampleblock / alertblock) ---- */
+  .card {
+    border-radius: 7px;
+    padding: 12px 18px 14px;
+    margin-bottom: 15px;
+    box-shadow: 2px 3px 7px rgba(0,0,0,.13);
+    font-size: 17.5px;
+    line-height: 1.42;
+  }
+  .card .t { font-weight: 700; margin-bottom: 5px; font-size: 17.5px; }
+  .card p { margin: 0; }
+  .card.blue  { background: var(--blue-bg); }
+  .card.blue  .t { color: var(--blue); }
+  .card.green { background: var(--green-bg); }
+  .card.green .t { color: var(--teal); }
+  .card.amber { background: var(--amber-bg); }
+  .card.amber .t { color: var(--amber); }
+
+  .card.sm { font-size: 15.5px; padding: 10px 16px 11px; margin-bottom: 11px; }
+  .card.sm .t { font-size: 15.5px; }
+
+  /* ---- bullets with the template's small blue triangle ---- */
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    position: relative;
+    padding-left: 22px;
+    margin-bottom: 8px;
+    font-size: 17.5px;
+    line-height: 1.4;
+  }
+  li::before {
+    content: "▸";
+    position: absolute;
+    left: 2px;
+    top: -1px;
+    color: var(--blue);
+    font-size: 15px;
+  }
+  ul.sm li { font-size: 15.5px; margin-bottom: 6px; }
+  ul.xs li { font-size: 14.5px; margin-bottom: 5px; }
+
+  .cols { display: flex; gap: 26px; }
+  .col { flex: 1; }
+  .col-58 { flex: 0 0 57%; }
+  .col-40 { flex: 0 0 39%; }
+
+  /* ---- footline ---- */
+  .foot {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 42px 16px;
+    font-size: 14.5px;
+    color: rgba(0,0,0,.7);
+  }
+
+  /* ---- title slide ---- */
+  .title-slide {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+  .title-slide h1 {
+    color: var(--navy);
+    font-size: 47px;
+    font-weight: 700;
+    margin: 0 0 26px;
+  }
+  .title-slide .sub    { font-size: 23px; margin-bottom: 20px; }
+  .title-slide .people { font-size: 17.5px; margin-bottom: 10px; }
+  .title-slide .guide  { font-size: 16px; margin-bottom: 9px; }
+  .title-slide .inst   { font-size: 14.5px; margin-bottom: 7px; }
+  .title-slide .course { font-size: 14.5px; margin-bottom: 20px; }
+  .title-slide .date   { color: var(--navy); font-size: 17px; }
+  .title-slide .rule {
+    width: 45%;
+    height: 2px;
+    background: var(--teal);
+    margin-top: 46px;
+  }
+
+  /* ---- tables ---- */
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; padding: 5px 9px; vertical-align: top; }
+  thead th { border-top: 1.1px solid #222; border-bottom: .7px solid #222; font-weight: 700; }
+  tbody tr:last-child td { border-bottom: 1.1px solid #222; }
+  table.mid { font-size: 16px; width: 68%; margin: 0 auto; }
+  table.io  { font-size: 13.6px; }
+  table.io td:first-child { font-weight: 700; white-space: nowrap; }
+
+  /* ---- architecture flow (slide 6) ---- */
+  .flow { display: flex; align-items: center; justify-content: center; gap: 0; margin: 6px 0 4px; }
+  .fbox {
+    border: 1.1px solid rgba(31,111,196,.7);
+    background: var(--blue-bg);
+    border-radius: 4px;
+    padding: 9px 7px;
+    text-align: center;
+    font-size: 12.6px;
+    font-weight: 700;
+    line-height: 1.28;
+    width: 118px;
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .fbox.act { border-color: rgba(15,123,108,.7); background: var(--green-bg); }
+  .arrow { color: var(--navy); font-size: 17px; padding: 0 7px; flex: none; }
+
+  .slow { display: flex; justify-content: center; gap: 26px; margin-top: 12px; }
+  .sbox {
+    border: 1.1px dashed rgba(224,138,30,.85);
+    background: var(--amber-bg);
+    border-radius: 4px;
+    padding: 8px 14px;
+    text-align: center;
+    font-size: 12.6px;
+    font-weight: 700;
+    line-height: 1.3;
+  }
+  /* dashed risers linking the fast-path row down to the slow-path boxes */
+  .riser { display: flex; justify-content: center; gap: 26px; height: 30px; }
+  .leg {
+    width: 300px;
+    border-left: 1.3px dashed rgba(224,138,30,.85);
+    border-right: 1.3px dashed rgba(224,138,30,.85);
+    border-bottom: 1.3px dashed rgba(224,138,30,.85);
+    border-radius: 0 0 4px 4px;
+    position: relative;
+  }
+  .leg-ml { border-right-color: transparent; border-left-color: transparent;
+            border-bottom-color: transparent; }
+  .leg-ml::before {
+    content: "";
+    position: absolute;
+    left: 50%; top: 0; bottom: 0;
+    border-left: 1.3px dashed rgba(224,138,30,.85);
+  }
+  .leglabel {
+    position: absolute;
+    left: 50%;
+    top: 4px;
+    transform: translateX(-50%);
+    background: var(--paper);
+    padding: 0 7px;
+    font-size: 11.6px;
+    line-height: 1.3;
+    color: rgba(0,0,0,.66);
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .note { font-size: 13.6px; color: rgba(0,0,0,.72); }
+  .gap-eq { text-align: center; font-size: 21px; line-height: 1.5; font-weight: 700; }
+  code { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: .93em; }
+
+  @media print {
+    body { background: #fff; }
+    .slide { margin: 0; box-shadow: none; }
+    @page { size: 1120px 630px; margin: 0; }
+  }
+</style>
+
+<!-- 1 ---------------------------------------------------------------- -->
+<div class="slide title-slide">
+  <h1>Course Project Review 1</h1>
+  <div class="sub">Agent-Aware Networking</div>
+  <div class="people">Dev A · Dev B · Dev C</div>
+  <div class="guide">Guide: Dr. Yoganand S</div>
+  <div class="inst">Vellore Institute of Technology</div>
+  <div class="course">BCSE308L/P Computer Networks</div>
+  <div class="date">9 September 2026</div>
+  <div class="rule"></div>
+</div>
+
+<!-- 2 ---------------------------------------------------------------- -->
+<div class="slide">
+  <div class="frametitle">Project Title and Scope</div>
+  <div class="body">
+    <div class="card blue">
+      <div class="t">Title</div>
+      <p><b>Agent-Aware Networking: In-Network Classification and Differentiated Transport QoS
+      for AI-Agent Traffic</b></p>
+    </div>
+    <div class="card amber">
+      <div class="t">Scope in one line</div>
+      <p>A P4<sub>16</sub>/BMv2 switch recognises AI-agent traffic <b>per packet, at line rate,
+      inside the forwarding pipeline</b>, and in the <b>same pipeline pass</b> assigns it a
+      differentiated transport treatment — queue, scheduler share, DSCP/ECN marking, and
+      admission control.</p>
+    </div>
+    <div class="card green">
+      <div class="t">Why it matters</div>
+      <p>53% of internet traffic is automated. An agent firing 50 parallel MCP tool-calls and a
+      human video call look like 51 identical TLS flows on port 443 — so they queue together, and
+      the human's packets wait behind the machine-paced burst.
+      <b>The network cannot fix what it cannot distinguish.</b></p>
+    </div>
+  </div>
+  <div class="foot"><span>Course Project Review 1</span><span>2/11</span></div>
+</div>
+
+<!-- 3 ---------------------------------------------------------------- -->
+<div class="slide">
+  <div class="frametitle">Objectives State What the Project Will Achieve</div>
+  <div class="body">
+    <div class="card blue">
+      <div class="t">Definition</div>
+      <p>An objective describes the <b>specific, measurable goal</b> that the project aims to
+      accomplish.</p>
+    </div>
+    <div class="card amber">
+      <div class="t">Project objectives (traceable to NFR targets)</div>
+      <ul class="sm" style="margin-top:7px">
+        <li>Classify every packet into <b>HUMAN_INTERACTIVE / AGENT_INTERACTIVE / AGENT_BULK /
+            UNKNOWN</b> at line rate, with no payload reassembly (NFR-8).</li>
+        <li>Couple that label to a <b>per-class QoS action</b> — DSCP, egress queue, ECN profile,
+            meter — in the same pass (FR-5).</li>
+        <li>Achieve <b>≥30% p99 human-latency reduction</b> versus the best of four baselines
+            under agent bursts (NFR-1).</li>
+        <li>Hold <b>&lt;5% added per-packet latency</b> in the data plane (NFR-2).</li>
+        <li>Refine decisions in a Ryu controller loop without ever blocking traffic: on any
+            uncertainty the packet stays best-effort — <b>fail-open</b> (NFR-6).</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Course Project Review 1</span><span>3/11</span></div>
+</div>
+
+<!-- 4 ---------------------------------------------------------------- -->
+<div class="slide">
+  <div class="frametitle">Gap Analysis Identifies What Is Missing</div>
+  <div class="body">
+    <div class="cols">
+      <div class="col-58">
+        <p style="font-size:16.5px;line-height:1.45;margin:2px 0 12px">
+          <b>Current state.</b> Agent detection (Cloudflare Web Bot Auth, DataDome, Akamai) lives
+          at the <b>HTTP/CDN edge</b>: it terminates TLS, sees only proxied traffic, reacts on
+          request timescales, and can only allow, block, or rate-limit.
+        </p>
+        <p style="font-size:16.5px;line-height:1.45;margin:0 0 12px">
+          <b>And QoS cannot see agents.</b> DiffServ and port/application marking classify by port
+          and application — agents use real browsers, valid TLS fingerprints, and port 443.
+        </p>
+        <ul class="sm">
+          <li>Detection exists, but not <i>in the forwarding path</i>.</li>
+          <li>QoS exists, but not <i>keyed to agent identity</i>.</li>
+          <li>Nothing couples the two in one pipeline.</li>
+        </ul>
+      </div>
+      <div class="col-40">
+        <div class="card blue">
+          <div class="t">Core relationship</div>
+          <div class="gap-eq">Gap = Desired State<br>− Current State</div>
+        </div>
+        <div class="card amber sm">
+          <div class="t">The gap we fill</div>
+          <p>Per-packet, line-rate <b>classification-to-QoS coupling</b> inside the switch — an
+          engineered lane, not a verdict.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Course Project Review 1</span><span>4/11</span></div>
+</div>
+
+<!-- 5 ---------------------------------------------------------------- -->
+<div class="slide">
+  <div class="frametitle">The Proposed System Is the Planned Solution</div>
+  <div class="body">
+    <div class="card blue sm">
+      <div class="t">Definition</div>
+      <p>The proposed system is the new method designed to solve the problems identified through
+      gap analysis.</p>
+    </div>
+    <div class="card green sm">
+      <div class="t">Our proposed system</div>
+      <p>A BMv2 switch running our P4 program parses each packet, updates per-flow timing and size
+      features in registers, evaluates an offline-trained decision tree compiled into
+      <b>range-match tables</b>, and immediately applies the class's DSCP, queue, ECN threshold,
+      and meter. A Ryu controller refines labels out of band via first-packet punts and an
+      entropy-shift reclassification loop.</p>
+    </div>
+    <table class="mid">
+      <thead>
+        <tr><th>Class</th><th>DSCP</th><th>Queue</th><th>Meter</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>HUMAN_INTERACTIVE</td><td>34</td><td>2 (protected)</td><td>—</td></tr>
+        <tr><td>AGENT_INTERACTIVE</td><td>18</td><td>1</td><td>M_AI</td></tr>
+        <tr><td>AGENT_BULK</td><td>8</td><td>0</td><td>M_AB</td></tr>
+        <tr><td>UNKNOWN</td><td>0</td><td>1</td><td>— (fail-open)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="foot"><span>Course Project Review 1</span><span>5/11</span></div>
+</div>
+
+<!-- 6 ---------------------------------------------------------------- -->
+<div class="slide">
+  <div class="frametitle">Architecture Design Shows Components and Data Flow</div>
+  <div class="body tight">
+    <div class="card blue sm">
+      <div class="t">Definition</div>
+      <p>Architecture design presents the major components, their connections, and the movement of
+      data.</p>
+    </div>
+
+    <div class="flow">
+      <div class="fbox">Traffic<br>sources</div>
+      <span class="arrow">→</span>
+      <div class="fbox">Parser<br>Eth/IP/TCP<br>TLS-CH</div>
+      <span class="arrow">→</span>
+      <div class="fbox">Flow state<br>EWMA / sizes<br>sketch</div>
+      <span class="arrow">→</span>
+      <div class="fbox">Decision tree<br>range tables</div>
+      <span class="arrow">→</span>
+      <div class="fbox act">QoS action<br>DSCP/queue<br>ECN/meter</div>
+      <span class="arrow">→</span>
+      <div class="fbox">MCP / web<br>target</div>
+    </div>
+
+    <div class="riser">
+      <div class="leg">
+        <span class="leglabel">punts / register reads ↑<br>table &amp; policy writes ↓</span>
+      </div>
+      <div class="leg leg-ml"><span class="leglabel">tree JSON →</span></div>
+    </div>
+
+    <div class="slow">
+      <div class="sbox">Ryu controller<br>policy / punts / reclassification</div>
+      <div class="sbox">Offline ML<br>pcap → features → tree</div>
+    </div>
+
+    <p class="note" style="margin-top:16px;text-align:center">
+      <b>Fast path</b> (every packet, ns–µs) stays in the switch; <b>slow path</b> (ms–s) only
+      refines.
+    </p>
+  </div>
+  <div class="foot"><span>Course Project Review 1</span><span>6/11</span></div>
+</div>
+
+<!-- 7 ---------------------------------------------------------------- -->
+<div class="slide">
+  <div class="frametitle">Tools Provide the Project's Technical Foundation</div>
+  <div class="body">
+    <div class="card green">
+      <div class="t">What should be included?</div>
+      <p>Programming languages, libraries, frameworks, platforms, hardware, and datasets used to
+      develop and evaluate the project.</p>
+    </div>
+    <div class="cols" style="margin-top:20px">
+      <div class="col">
+        <ul>
+          <li><b>P4<sub>16</sub> (v1model)</b> — data-plane language</li>
+          <li><b>BMv2 <code>simple_switch</code></b> — software switch</li>
+          <li><b>Mininet</b> — network emulation</li>
+          <li><b>Ryu (Python 3.9)</b> — SDN controller</li>
+          <li><b>Python 3.11</b> — tooling and ML</li>
+        </ul>
+      </div>
+      <div class="col">
+        <ul>
+          <li><b>scikit-learn</b> — decision-tree training</li>
+          <li><b>Scapy / tshark / tcpreplay</b> — capture and replay</li>
+          <li><b>pandas / matplotlib</b> — metrics and figures</li>
+          <li><b>pytest / PTF</b> — Python and P4 tests</li>
+          <li><b>Datasets</b> — agent frameworks in Docker, MAWI/CAIDA traces</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Course Project Review 1</span><span>7/11</span></div>
+</div>
+
+<!-- 8 ---------------------------------------------------------------- -->
+<div class="slide">
+  <div class="frametitle">Modules Divide the Project into Manageable Parts</div>
+  <div class="body">
+    <div class="card blue">
+      <div class="t">Definition</div>
+      <p>Module identification divides the complete project into smaller components, each
+      responsible for a specific task.</p>
+    </div>
+    <div class="cols" style="margin-top:18px">
+      <div class="col">
+        <ul>
+          <li><b>Data-plane module</b> — <code>p4src/</code></li>
+          <li><b>Controller module</b> — <code>controller/</code></li>
+          <li><b>ML module</b> — <code>ml/</code></li>
+        </ul>
+      </div>
+      <div class="col">
+        <ul>
+          <li><b>Traffic-harness module</b> — <code>harness/</code></li>
+          <li><b>Evaluation module</b> — <code>eval/</code></li>
+          <li><b>Dashboard module</b> — <code>dashboard/</code></li>
+        </ul>
+      </div>
+    </div>
+    <div class="card amber" style="margin-top:20px">
+      <div class="t">Shared contract layer</div>
+      <p>All six modules import names, class labels, DSCP/queue maps, feature order, and schemas
+      from <b><code>common/contracts.py</code></b> — the single frozen source of truth. No module
+      re-declares a literal.</p>
+    </div>
+  </div>
+  <div class="foot"><span>Course Project Review 1</span><span>8/11</span></div>
+</div>
+
+<!-- 9 ---------------------------------------------------------------- -->
+<div class="slide">
+  <div class="frametitle">Explain Every Module Through Input, Process, and Output</div>
+  <div class="body">
+    <div class="card blue sm">
+      <div class="t">Module explanation</div>
+      <p>Describe the purpose, input, processing steps, and output of every identified module.</p>
+    </div>
+    <table class="io">
+      <thead>
+        <tr><th>Module</th><th>Input</th><th>Process</th><th>Output</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Data plane</td><td>Packets on the choke link</td>
+          <td>Parse, update flow registers, tree lookup, QoS action</td>
+          <td>Forwarded packet + DSCP/queue/ECN</td>
+        </tr>
+        <tr>
+          <td>Controller</td><td>Punted first packets, register reads</td>
+          <td>JA4, Web Bot Auth, reclassification sweep</td>
+          <td>Table/policy writes, overrides</td>
+        </tr>
+        <tr>
+          <td>ML</td><td>Labelled pcaps</td>
+          <td>Feature extraction, tree training (depth ≤ 8), compile to entries</td>
+          <td>Tree JSON → table entries</td>
+        </tr>
+        <tr>
+          <td>Harness</td><td>Agent frameworks, trace replay</td>
+          <td>Run scenarios, capture, join labels to 5-tuples</td>
+          <td><code>labels.csv</code>, pcaps</td>
+        </tr>
+        <tr>
+          <td>Evaluation</td><td>Experiment YAML + seed</td>
+          <td>Run grid over 4 baselines, extract percentiles</td>
+          <td>Metrics, CIs, figures</td>
+        </tr>
+        <tr>
+          <td>Dashboard</td><td>Live per-class counters</td>
+          <td>Aggregate p50/p95/p99</td><td>Demo view</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="card amber sm" style="margin-top:13px">
+      <div class="t">Example: Harness labelling module (implemented for Review 1)</div>
+      <p><b>Input:</b> pcap + orchestration windows · <b>Process:</b> extract TCP/UDP 5-tuples,
+      join to windows deterministically · <b>Output:</b> frozen-schema <code>labels.csv</code></p>
+    </div>
+  </div>
+  <div class="foot"><span>Course Project Review 1</span><span>9/11</span></div>
+</div>
+
+<!-- 10 --------------------------------------------------------------- -->
+<div class="slide">
+  <div class="frametitle">Choose an Algorithm and Explain How It Works</div>
+  <div class="body">
+    <div class="cols">
+      <div class="col">
+        <div class="card blue sm">
+          <div class="t">Algorithm identification</div>
+          <p><b>Decision tree (depth ≤ 8)</b>, trained offline in scikit-learn and mechanically
+          compiled into P4 <b>range-match tables</b>.</p>
+        </div>
+      </div>
+      <div class="col">
+        <div class="card green sm">
+          <div class="t">Why this algorithm</div>
+          <p>A tree is the one model a switch can evaluate in a fixed number of table lookups —
+          no loops, no floating point, bounded per-packet cost.</p>
+        </div>
+      </div>
+    </div>
+    <div class="card amber">
+      <div class="t">How it works</div>
+      <p>Ten integer features (timing EWMA, packet sizes, byte ratios, fan-out sketch) are computed
+      in registers with <b>saturating fixed-point</b> arithmetic — shifts only, no division. Each
+      tree path becomes one table entry over feature ranges; the matched entry yields a 2-bit
+      class, which directly selects the QoS action. Classification is re-evaluated at packet
+      checkpoints <b>6, 16, and 64</b>; before the first checkpoint the flow is UNKNOWN and served
+      best-effort.</p>
+    </div>
+    <p class="note">
+      <b>Review 1 status:</b> the label-join path is implemented; bit-exact feature arithmetic is
+      <i>explicitly blocked</i> pending four frozen-contract decisions
+      (<code>docs/feature_arithmetic_design_gaps.md</code>).
+    </p>
+  </div>
+  <div class="foot"><span>Course Project Review 1</span><span>10/11</span></div>
+</div>
+
+<!-- 11 --------------------------------------------------------------- -->
+<div class="slide">
+  <div class="frametitle">The First 25% Should Demonstrate Visible Progress</div>
+  <div class="body">
+    <div class="card green sm">
+      <div class="t">Expected milestone</div>
+      <p>Approximately one-fourth of the planned development work completed and supported by
+      initial evidence or a working prototype.</p>
+    </div>
+    <ul class="xs">
+      <li><b>Contracts frozen and tested</b> — class treatments, table/register names, feature
+          order, CPU header, label and tree schemas in <code>common/contracts.py</code>.</li>
+      <li><b>M1 forwarding prototype</b> — <code>p4src/l2fwd.p4</code> with the L2 table and a
+          readable <code>policy_version</code> register; <b>compiles under
+          <code>p4c-bm2-ss</code></b>.</li>
+      <li><b>Topology</b> — deterministic <code>choke_v1</code> host, port, and bottleneck
+          definition.</li>
+      <li><b>Controller read path</b> — BMv2 CLI boundary with validated register reads and
+          explicit error reporting.</li>
+      <li><b>Initial preprocessing</b> — orchestration-to-<code>labels.csv</code> pcap labelling in
+          the frozen schema.</li>
+      <li><b>Reproducibility</b> — seeded Review 1 smoke config; <code>make review-1-host</code>
+          runs the whole host gate.</li>
+    </ul>
+    <div class="card blue sm" style="margin-top:11px">
+      <div class="t">Verified vs pending</div>
+      <p style="font-size:14.5px;line-height:1.45">
+        <b>Passing:</b> Ruff lint + format, <b>34 pytest tests</b>, config validation,
+        <code>AGENTS.md</code>/<code>CLAUDE.md</code> byte-identical, and <code>l2fwd.p4</code>
+        compiles with the frozen table/register names preserved.<br>
+        <b>Awaiting the Linux VM:</b> live Mininet/BMv2 run and one iperf3 flow across the switch.<br>
+        <b>Not claimed yet:</b> no classification-accuracy, p99-reduction, or overhead result.
+      </p>
+    </div>
+  </div>
+  <div class="foot"><span>Course Project Review 1</span><span>11/11</span></div>
+</div>
