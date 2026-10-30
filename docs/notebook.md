@@ -163,8 +163,9 @@ root namespace, client traffic forced across the switch-facing veths `gw-lan-sw`
 (bridged in bypass mode until G2 attaches BMv2), MASQUERADE to `ens4`, MSS clamping, MTU 1280,
 boot-time unit. Verified on the VM: selftest PASS (egress IP = VM IP, packets counted on
 `gw-lan-sw`, RTT to 1.1.1.1 ≈ 1.2 ms); two restarts safe; bypass off → no connectivity, on → PASS;
-teardown idempotent with no leftovers; reboot → gateway active and PASS. Not yet verified: a real
-phone over cellular (I2 pending).
+teardown idempotent with no leftovers; reboot → gateway active and PASS. Phone test (same day): Android
+over cellular reached the internet as `34.131.42.32`; handshake from a mobile-carrier endpoint,
+≈ 500 KB each way, matched by `gw-lan-sw` counters.
 
 C4 lead: `harness/runtime.py` starts `simple_switch` without `--log-console`, but the installed
 BMv2 1.15.7 has logging compiled in (logging options accepted). BMv2 performance builds use
