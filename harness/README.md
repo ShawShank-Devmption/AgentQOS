@@ -75,3 +75,48 @@ This establishes one MAWI input, not the complete human corpus. It has not been 
 macOS host because tcpreplay and the Linux Mininet topology are unavailable. CAIDA acquisition
 still requires an authorized project member to accept the applicable agreement. Consented browsing
 still requires a participant and a recorded retention/deletion date.
+
+### D2 application-shaped traffic profiles
+
+`eval/workload.py`, `harness/demo_traffic.py`, and `harness/traffic.py` add the Dev C D2
+profile planner, measured UDP actors, and sender/receiver evidence join. The profile at
+`eval/configs/workload_demo.json` describes video/audio, MCP tool calls, ingest uploads and
+crawler downloads through the existing `load_profile` API. A constant-size reference profile
+is retained at `eval/configs/workload_runtime.json`.
+
+The original Jobin HTTP storm, runtime, experiment completion checks and dashboard remain
+the existing execution path. This port does not import Shashank's alternative runtime,
+controller, topology, or frozen-contract changes. Its Linux workload adapter cannot be
+used unchanged with Jobin's runtime APIs. The D2 planner and measured actors are available
+independently; wiring them into the existing audited experiment path and VM validation remain
+pending. Do not use the other branch's `--execute ... -m eval.workload` recipe on this branch.
+
+Generate and archive one plan from the frozen experiment config, without running traffic:
+
+```sh
+.venv/bin/python -m eval.workload --plan-only \
+  --config eval/configs/demo_profile_smoke.yaml \
+  --profile eval/configs/workload_demo.json \
+  --seed 1 --share 30 --burst low --output results/d2-plan-001
+```
+
+The destination must be new. The plan archives the exact selected config/profile bytes and
+profile SHA-256; it does not create an experiment completion artifact. Shared class IDs come
+from `common/contracts.py`; labels stay in orchestration and are not sent as DSCP or payload
+ground truth (§7.20). `harness.traffic` accepts explicit sender/target actor plans, and the
+workload's `_run_network_traffic` helper operates on a supplied active Mininet network rather
+than assuming a different topology/controller launcher.
+
+Video uses 30-fps frame trains with lognormal frame sizes and 1200-byte payloads spaced
+900 µs apart, plus 20-ms audio with 90–159-byte payloads. MCP/bulk sizes, segmentation,
+server delays, reasoning gaps, waves, jitter and limits are in the JSON. Independent flows
+retain cadence at higher offered loads. Bulk bytes are distributed over recurring wave
+intervals; low budgets produce partial transfers, including a shortened final datagram.
+The planner validates each class's offered Ethernet-frame bytes (payload + 42 bytes, excluding
+FCS/preamble/inter-frame gap) over `duration_s - drain_s` within 2 %, or rejects an infeasible
+cell. The packet-rate conversion uses the actual planned mean frame size.
+
+These are one-direction synthetic UDP application patterns, not TCP/TLS/bidirectional
+equivalence or real captured MCP agents. Live classification at checkpoints 6/16/64 and QoS
+claims require separate Linux evidence. DESIGN GAP: the D2 JSON's low/med/high settings are
+experimental, not approved grid presets; the original Jobin storm presets are unchanged.

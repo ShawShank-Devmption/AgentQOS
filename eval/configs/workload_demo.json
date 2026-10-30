@@ -1,0 +1,67 @@
+{
+  "provenance": "synthetic_udp_stress",
+  "destination_port": 33002,
+  "human_flows": 1,
+  "agent_interactive_flows": 1,
+  "agent_bulk_flows": 1,
+  "payload_bytes": 1024,
+  "drain_s": 0.2,
+  "offered_load_multiplier": 1.2,
+  "burst_parallelism": {"low": 1, "med": 2, "high": 4},
+  "agent_call_s": 0.5,
+  "socket_buffer_bytes": 1048576,
+  "poll_s": 0.01,
+  "max_packets": 300000,
+  "diffserv_rules": [{"protocol": "udp", "destination_port": 33002, "traffic_class": 1}],
+  "traffic_shapes": {
+    "human_video_call": {
+      "frame_interval_s": 0.033333,
+      "frame_bytes": {"distribution": "lognormal", "median": 4000, "sigma": 0.5},
+      "video_payload_bytes": 1200,
+      "video_packet_gap_s": 0.0009,
+      "audio_interval_s": 0.02,
+      "audio_bytes": {"distribution": "uniform", "min": 90, "max": 159},
+      "jitter_mean_s": 0.00004
+    },
+    "agent_mcp": {
+      "segment_payload_bytes": 1472,
+      "segment_gap_s": 0.0006056,
+      "max_object_bytes": 4000000,
+      "server_delay_s": {"distribution": "lognormal", "median": 0.03, "sigma": 0.8},
+      "jitter_mean_s": 0.00004,
+      "start_spread_s": 0.02,
+      "request_bytes": {"distribution": "lognormal", "median": 600, "sigma": 0.6},
+      "response_bytes": {"distribution": "lognormal", "median": 3000, "sigma": 1.0},
+      "think_s": {"distribution": "lognormal", "median": 1.2, "sigma": 0.6},
+      "calls_per_step_mean": 0.8
+    },
+    "agent_ingest": {
+      "segment_payload_bytes": 1472,
+      "segment_gap_s": 0.0006056,
+      "max_object_bytes": 4000000,
+      "server_delay_s": {"distribution": "lognormal", "median": 0.03, "sigma": 0.8},
+      "jitter_mean_s": 0.00004,
+      "start_spread_s": 0.02,
+      "request_bytes": {"distribution": "lognormal", "median": 200000, "sigma": 1.0},
+      "response_bytes": {"distribution": "uniform", "min": 200, "max": 1499},
+      "requests_per_flow": [3, 9],
+      "parallel_flows": [8, 32],
+      "wave_gap_s": {"distribution": "lognormal", "median": 1.2, "sigma": 0.6},
+      "parse_gap_s": 0.001
+    },
+    "agent_crawler": {
+      "segment_payload_bytes": 1472,
+      "segment_gap_s": 0.0006056,
+      "max_object_bytes": 4000000,
+      "server_delay_s": {"distribution": "lognormal", "median": 0.03, "sigma": 0.8},
+      "jitter_mean_s": 0.00004,
+      "start_spread_s": 0.02,
+      "request_bytes": {"distribution": "uniform", "min": 200, "max": 449},
+      "response_bytes": {"distribution": "lognormal", "median": 150000, "sigma": 1.0},
+      "requests_per_flow": [3, 9],
+      "parallel_flows": [8, 32],
+      "wave_gap_s": {"distribution": "lognormal", "median": 1.2, "sigma": 0.6},
+      "parse_gap_s": 0.001
+    }
+  }
+}

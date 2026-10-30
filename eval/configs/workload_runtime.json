@@ -1,0 +1,16 @@
+{
+  "provenance": "synthetic_udp_stress",
+  "destination_port": 33002,
+  "human_flows": 1,
+  "agent_interactive_flows": 1,
+  "agent_bulk_flows": 1,
+  "payload_bytes": 1024,
+  "drain_s": 0.2,
+  "offered_load_multiplier": 1.2,
+  "burst_parallelism": {"low": 1, "med": 2, "high": 4},
+  "agent_call_s": 0.5,
+  "socket_buffer_bytes": 1048576,
+  "poll_s": 0.01,
+  "max_packets": 100000,
+  "diffserv_rules": [{"protocol": "udp", "destination_port": 33002, "traffic_class": 1}]
+}

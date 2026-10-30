@@ -208,3 +208,33 @@ including the new `reg_first_ts` register, which is a frozen-contract change awa
 
 **Pending:** Dev A agreement and a PTF replay of the fixture through `features.p4`. P2.4 is not
 done until that replay matches exactly.
+
+## 2026-10-31 — Dev C D2 port onto the original Jobin branch
+
+The remote branch was restored to `1182058` before adding this work. This commit is based on
+that original Jobin history and adds only Dev C profile/scheduling/measurement code, tests,
+configs and documentation. It does not merge `origin/shashank`, replace existing files from
+that branch, or alter `common/`, `controller/`, `ml/`, `p4src/`, the current experiment runner,
+runtime, topology, dashboard, or publication/evidence gates.
+
+Scope: handoff D2 / task P3.15; design §9, §4.6, §7.19, §7.20. Ported the seeded video/MCP/
+ingest/crawler models, existing profile-loader extension, per-class frame-byte budgets, variable
+payload UDP sender/receiver, evidence join, input archiving, and queue-unit conversion. The
+regressions for recurring bulk waves and short-window load quantization remain included.
+
+Jobin does not contain the alternative RuntimeConfig/baseline/controller interfaces consumed
+by the first D2 commit. Those are not brought into this branch. The command entrypoint here
+therefore archives a plan only; supplied-network UDP measurement helpers and standalone actor
+commands remain available. The original audited HTTP experiment execution path is preserved.
+Live D2 integration/VM smoke and D3 classification remain pending, not claimed by unit tests.
+See `harness/README.md` for the supported command and limitations.
+
+DESIGN GAP: agreed grid burst presets are still needed. D2 profile settings remain experimental
+and do not replace this branch's existing storm mapping. Agent traffic is a one-direction UDP
+timing/size approximation, not TCP/TLS or bidirectional corpus equivalence.
+
+Verification baseline before port: `make test` with the project Python 3.11 interpreter gave
+249 passed. Port verification: `make lint RUFF='.venv/bin/python -m ruff'` passed;
+`make test PYTEST='.venv/bin/python -m pytest'` gave 304 passed; and
+`make review-config PYTHON=.venv/bin/python` validated the unchanged review_1_smoke config.
+No Linux or BMv2 result is inferred.
