@@ -27,7 +27,7 @@ parser PacketParser(
     }
 }
 
-control VerifyChecksum(
+control VerifyChecksumControl(
     inout headers_t hdr,
     inout metadata_t meta)
 {
@@ -78,7 +78,7 @@ control EgressPipeline(
     apply { }
 }
 
-control ComputeChecksum(
+control ComputeChecksumControl(
     inout headers_t hdr,
     inout metadata_t meta)
 {
@@ -93,9 +93,9 @@ control PacketDeparser(packet_out packet, in headers_t hdr) {
 
 V1Switch(
     PacketParser(),
-    VerifyChecksum(),
+    VerifyChecksumControl(),
     IngressPipeline(),
     EgressPipeline(),
-    ComputeChecksum(),
+    ComputeChecksumControl(),
     PacketDeparser()
 ) main;

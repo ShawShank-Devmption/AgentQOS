@@ -1,0 +1,72 @@
+{
+  "model_hash": "smoke_only_untrained",
+  "feature_order": [
+    "iat_ewma_us",
+    "iat_var_ewma",
+    "pkt_count",
+    "mean_pkt_size_up",
+    "updown_ratio_x100",
+    "first8_size_bucket",
+    "fanout_new_flows",
+    "tls_ext_count",
+    "tls_alpn_class",
+    "flow_age_ms"
+  ],
+  "entries": [
+    {
+      "table": "tbl_tree_l0",
+      "match_ranges": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          4294967295
+        ],
+        [
+          0,
+          4294967295
+        ],
+        [
+          0,
+          4294967295
+        ],
+        [
+          0,
+          65535
+        ],
+        [
+          0,
+          65535
+        ],
+        [
+          0,
+          255
+        ],
+        [
+          0,
+          65535
+        ],
+        [
+          0,
+          255
+        ],
+        [
+          0,
+          255
+        ],
+        [
+          0,
+          4294967295
+        ]
+      ],
+      "action": "tree_leaf",
+      "action_params": [
+        0,
+        0
+      ],
+      "priority": 1
+    }
+  ]
+}
