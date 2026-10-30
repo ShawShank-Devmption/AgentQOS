@@ -1,6 +1,7 @@
 """Ground-truth flow labeling from orchestration windows and captured packets."""
 
 import csv
+import struct
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from ipaddress import IPv4Address
@@ -181,3 +182,38 @@ def _label_packet(
         source_framework=window.source_framework,
         pcap_file=pcap_name,
     )
+
+
+def validate_capture(path: Path) -> None:
+    """Validate classic Ethernet pcap framing before any consumer trusts packet records.
+
+    Rejects truncated records, capture truncation, unsupported link types and malformed timestamp
+    fractions. Convert pcapng to classic pcap before ingestion so all stages share this check.
+    """
+    # Scapy can silently accept a truncated final record; check framing before consuming data.
+    formats = {
+        b"\xd4\xc3\xb2\xa1": ("<", 1_000_000),
+        b"\xa1\xb2\xc3\xd4": (">", 1_000_000),
+        b"\x4d\x3c\xb2\xa1": ("<", 1_000_000_000),
+        b"\xa1\xb2\x3c\x4d": (">", 1_000_000_000),
+    }
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    with path.open("rb") as handle:
+        header = handle.read(24)
+        if len(header) != 24 or header[:4] not in formats:
+            raise PcapInputError("expected classic Ethernet pcap; convert pcapng before extraction")
+        endian, resolution = formats[header[:4]]
+        major, minor, _, _, snaplen, linktype = struct.unpack(f"{endian}HHiIII", header[4:])
+        if (major, minor) != (2, 4) or linktype != 1 or not snaplen:
+            raise PcapInputError("unsupported pcap version, snapshot length or Ethernet link type")
+        total = path.stat().st_size
+        while record := handle.read(16):
+            if len(record) != 16:
+                raise PcapInputError("truncated pcap record header")
+            _, fraction, captured, original = struct.unpack(f"{endian}IIII", record)
+            if captured > total - handle.tell():
+                raise PcapInputError("truncated pcap packet record")
+            if captured > snaplen or captured != original or fraction >= resolution:
+                raise PcapInputError("truncated capture or invalid pcap packet lengths/timestamp")
+            handle.seek(captured, 1)

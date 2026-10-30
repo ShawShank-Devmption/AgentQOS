@@ -1,0 +1,5 @@
+[
+  {"tool": "search", "arguments": {"query": "network"}},
+  {"tool": "fetch", "arguments": {"document_id": "networking"}},
+  {"tool": "compute", "arguments": {"values": [1, 2, 3, 5, 8]}}
+]
