@@ -1,0 +1,9 @@
+name: demo_call_fifo
+system: fifo
+topology: choke_v1
+link_mbps: 10
+agent_share_pct: [80]
+burst_intensity: [high]
+duration_s: 30
+seeds: [1, 2, 3, 4, 5]
+outputs: results/demo_call_fifo/
