@@ -27,7 +27,7 @@ cleanup() {
 trap cleanup EXIT
 
 address="${AAN_CLIENT_NET%.*}.$AAN_SELFTEST_HOST"
-wg genkey >"$workdir/key"
+(umask 077 && wg genkey >"$workdir/key")
 public=$(wg pubkey <"$workdir/key")
 ip netns exec "$AAN_NETNS" wg set "$AAN_WG_IF" peer "$public" allowed-ips "$address/32"
 
