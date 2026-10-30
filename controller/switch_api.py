@@ -6,21 +6,27 @@ import fcntl
 import re
 import subprocess
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Tuple, Union
 
 from common.contracts import (
+    FLOW_OVERRIDE_ACTION,
+    FLOW_OVERRIDE_KEY_BITS,
+    FLOW_OVERRIDE_TABLE,
     METER_AGENT_BULK,
     METER_AGENT_INTERACTIVE,
+    METER_PUNT,
     REGISTER_NAMES,
     TABLE_NAMES,
+    TrafficClass,
 )
 
 _PROMPT = "RuntimeCmd: "
 # simple_switch_CLI exits 0 even when it rejects a command; these lines are its rejections.
 # Covers "Invalid table operation (...)", "Invalid match key: ...", "Invalid runtime data: ...".
 _REJECTION = re.compile(r"^(?:Error|Invalid |\*\*\* Unknown syntax)", re.MULTILINE)
+FlowMatch = Tuple[int, int, int, int, int]
 
 
 class SwitchApiError(RuntimeError):
@@ -78,6 +84,50 @@ class SwitchApi:
                 raise SwitchApiError(f"BMv2 rejected '{command}': {output.strip()}")
         return outputs
 
+    def read_registers_ordered(self, names: Sequence[str]) -> tuple[tuple[int, ...], ...]:
+        """Read arrays in one session, retaining repeated names for snapshot brackets.
+
+        Unlike a dictionary result, this preserves both reg_pkt_count reads used to
+        reject torn snapshots (§7.4). No per-slot CLI sessions are performed.
+        """
+        for name in names:
+            _require_register(name)
+        outputs = self.execute([f"register_read {name}" for name in names])
+        return tuple(_parse_register_output(name, out) for name, out in zip(names, outputs))
+
+    def apply_flow_overrides(self, desired: Mapping[FlowMatch, TrafficClass | None]) -> None:
+        """Reconcile upserts/deletes against current exact-flow table handles.
+
+        The caller must own the controller's lifetime lock for this switch. A failed CLI
+        batch may have applied some writes: do not acknowledge it; the next call re-dumps
+        the table and converges without trusting cached handles (§7.5).
+        """
+        for key, label in desired.items():
+            _require_flow_match(key)
+            if label is not None and not isinstance(label, TrafficClass):
+                raise ValueError("override class must be TrafficClass or None for deletion")
+        if not desired:
+            return
+        (transcript,) = self.execute([f"table_dump {FLOW_OVERRIDE_TABLE}"])
+        current = _parse_override_dump(transcript)
+        commands = []
+        for key, label in desired.items():
+            entry = current.get(key)
+            if label is None:
+                if entry is not None:
+                    commands.append(f"table_delete {FLOW_OVERRIDE_TABLE} {entry[0]}")
+            elif entry is None:
+                commands.append(
+                    table_add_command(FLOW_OVERRIDE_TABLE, FLOW_OVERRIDE_ACTION, key, [int(label)])
+                )
+            elif label != entry[1]:
+                commands.append(
+                    f"table_modify {FLOW_OVERRIDE_TABLE} {FLOW_OVERRIDE_ACTION} "
+                    f"{entry[0]} {int(label)}"
+                )
+        if commands:
+            self.execute(commands)
+
     def read_registers(self, names: Sequence[str]) -> dict[str, tuple[int, ...]]:
         """Bulk-read whole register arrays in one CLI session (design.md section 6.3).
 
@@ -110,6 +160,44 @@ class SwitchApi:
 MatchKey = Union[int, Tuple[int, int]]  # exact value, or inclusive (low, high) range
 
 
+def _require_flow_match(key: FlowMatch) -> None:
+    if not isinstance(key, tuple) or len(key) != len(FLOW_OVERRIDE_KEY_BITS):
+        raise ValueError("override key must be the canonical five-tuple")
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) or not 0 <= value < 1 << bits
+        for value, bits in zip(key, FLOW_OVERRIDE_KEY_BITS)
+    ):
+        raise ValueError("override key outside frozen field widths")
+
+
+def _parse_override_dump(transcript: str) -> dict[FlowMatch, tuple[int, TrafficClass]]:
+    if "TABLE ENTRIES" not in transcript:
+        raise SwitchApiError("BMv2 override dump lacks table entries marker")
+    result: dict[FlowMatch, tuple[int, TrafficClass]] = {}
+    handles: set[int] = set()
+    blocks = re.split(r"Dumping entry\s+(0x[0-9a-fA-F]+|[0-9]+)\s*\n", transcript)
+    if transcript.count("Dumping entry") != (len(blocks) - 1) // 2:
+        raise SwitchApiError("malformed BMv2 override entry header")
+    for index in range(1, len(blocks), 2):
+        handle = int(blocks[index], 0)
+        block = blocks[index + 1]
+        cells = re.findall(r"^\*.*?:\s*EXACT\s+([0-9a-fA-F]+)\s*$", block, re.MULTILINE)
+        key = tuple(int(value, 16) for value in cells)
+        action = re.search(r"^Action entry:\s*(\S+)\s*-\s*([0-9a-fA-F]+)\s*$", block, re.MULTILINE)
+        try:
+            _require_flow_match(key)
+            if action is None or action[1].rsplit(".", 1)[-1] != FLOW_OVERRIDE_ACTION:
+                raise ValueError("unexpected override action")
+            label = TrafficClass(int(action[2], 16))
+            if key in result or handle in handles:
+                raise ValueError("duplicate override key/handle")
+        except ValueError as exc:
+            raise SwitchApiError(f"malformed BMv2 override entry: {exc}") from exc
+        result[key] = handle, label
+        handles.add(handle)
+    return result
+
+
 def table_add_command(
     table: str,
     action: str,
@@ -138,6 +226,12 @@ def table_clear_command(table: str) -> str:
     return f"table_clear {table}"
 
 
+def register_reset_command(name: str) -> str:
+    """Build a whole-array reset for a contract register (epoch safety is the caller's duty)."""
+    _require_register(name)
+    return f"register_reset {name}"
+
+
 def register_write_command(name: str, index: int, value: int) -> str:
     """Build a `register_write` for one cell of a contract register."""
     _require_register(name)
@@ -146,7 +240,7 @@ def register_write_command(name: str, index: int, value: int) -> str:
 
 def meter_set_rates_command(meter: str, index: int, rates: Sequence[tuple[float, int]]) -> str:
     """Build `meter_set_rates`: (CIR, CBS) then (PIR, PBS), rates in bytes per microsecond."""
-    if meter not in (METER_AGENT_INTERACTIVE, METER_AGENT_BULK):
+    if meter not in (METER_AGENT_INTERACTIVE, METER_AGENT_BULK, METER_PUNT):
         raise ValueError(f"unknown contract meter: {meter}")
     bands = " ".join(f"{rate:.6f}:{_unsigned(burst)}" for rate, burst in rates)
     return f"meter_set_rates {meter} {_unsigned(index)} {bands}"

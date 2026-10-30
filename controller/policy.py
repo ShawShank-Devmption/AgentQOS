@@ -13,11 +13,14 @@ from common.contracts import (
     MAX_LINK_MBPS,
     METER_BURST_BYTES,
     METER_PRESETS,
+    METER_PUNT,
     METER_SELECT,
     MIN_LINK_MBPS,
     POLICY_VERSION_REGISTER,
     PUNT_ACTION,
+    PUNT_BURST_PACKETS,
     PUNT_FILTER_TABLE,
+    PUNT_RATE_PPS,
     PUNT_REASON_FIRST_PACKET,
     PUNT_REASON_LOW_CONFIDENCE,
     TREE_TABLE_NAMES,
@@ -73,12 +76,12 @@ def push_policy(api: SwitchApi, link_mbps: int, tree: CompiledTree | None) -> in
 def policy_commands(link_mbps: int, tree: CompiledTree | None) -> list[str]:
     """Return every CLI command of a full policy push, in execution order."""
     # Misses during the clear-then-add window get the UNKNOWN treatment (fail-open, NFR-6).
-    unknown = _class_action_params(CLASS_TREATMENTS[TrafficClass.UNKNOWN])
-    commands = [table_set_default_command(CLASS_ACTION_TABLE, CLASS_ACTION_NAME, unknown)]
-    commands += [table_clear_command(table) for table in _OWNED_TABLES]
-    commands += _class_action_commands()
+    commands = class_policy_commands(link_mbps)
+    commands += [
+        table_clear_command(table) for table in _OWNED_TABLES if table != CLASS_ACTION_TABLE
+    ]
     commands += [table_add_command(PUNT_FILTER_TABLE, PUNT_ACTION, [r], []) for r in _PUNT_REASONS]
-    commands += _meter_preset_commands(link_mbps)
+    commands.append(_punt_meter_command())
     if tree is not None:
         commands += [
             table_add_command(
@@ -91,6 +94,17 @@ def policy_commands(link_mbps: int, tree: CompiledTree | None) -> list[str]:
             for entry in tree.entries
         ]
     return commands
+
+
+def class_policy_commands(link_mbps: int) -> list[str]:
+    """Install the frozen class treatments and presets without classifier-only tables."""
+    unknown = _class_action_params(CLASS_TREATMENTS[TrafficClass.UNKNOWN])
+    return [
+        table_set_default_command(CLASS_ACTION_TABLE, CLASS_ACTION_NAME, unknown),
+        table_clear_command(CLASS_ACTION_TABLE),
+        *_class_action_commands(),
+        *_class_meter_commands(link_mbps),
+    ]
 
 
 def link_share_bytes_per_us(link_mbps: int, pct: int) -> float:
@@ -119,7 +133,7 @@ def _class_action_params(treatment: ClassTreatment) -> list[int]:
     ]
 
 
-def _meter_preset_commands(link_mbps: int) -> list[str]:
+def _class_meter_commands(link_mbps: int) -> list[str]:
     # §5.5: both presets are installed; the data plane picks one by reg_congestion_flag.
     if not MIN_LINK_MBPS <= link_mbps <= MAX_LINK_MBPS:
         raise ValueError(f"link_mbps must be within {MIN_LINK_MBPS}..{MAX_LINK_MBPS}")
@@ -135,3 +149,11 @@ def _meter_preset_commands(link_mbps: int) -> list[str]:
         for preset, shares in METER_PRESETS.items()
         for meter, share in shares.items()
     ]
+
+
+def _punt_meter_command() -> str:
+    # §7.6: packet meter limits only CPU clones; forwarded packets never depend on punt success.
+    rate = PUNT_RATE_PPS / 1_000_000
+    return meter_set_rates_command(
+        METER_PUNT, 0, [(rate, PUNT_BURST_PACKETS), (rate, PUNT_BURST_PACKETS)]
+    )

@@ -199,3 +199,20 @@ def test_execute_holds_switch_lock_that_the_cli_child_inherits() -> None:
     assert len(held["pass_fds"]) == 1
     with _lock_path(9095).open("a") as after:
         fcntl.flock(after, fcntl.LOCK_EX | fcntl.LOCK_NB)  # released once the session ends
+
+
+def test_ordered_register_read_preserves_repeated_bracket_names() -> None:
+    stdout = BANNER + "RuntimeCmd: reg_pkt_count= 6\nRuntimeCmd: reg_pkt_count= 7\nRuntimeCmd: "
+    with patch("controller.switch_api.subprocess.run", return_value=_cli(stdout)):
+        assert SwitchApi().read_registers_ordered(["reg_pkt_count", "reg_pkt_count"]) == (
+            (6,),
+            (7,),
+        )
+
+
+def test_register_reset_validates_contract_name() -> None:
+    from controller.switch_api import register_reset_command
+
+    assert register_reset_command("reg_cm_sketch_0") == "register_reset reg_cm_sketch_0"
+    with pytest.raises(ValueError):
+        register_reset_command("invented")

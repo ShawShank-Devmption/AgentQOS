@@ -10,10 +10,16 @@ from common.contracts import (
     FLOW_OVERRIDE_TABLE,
     METER_AGENT_BULK,
     METER_AGENT_INTERACTIVE,
+    METER_PUNT,
     POLICY_VERSION_REGISTER,
     PRESET_PROTECTIVE,
 )
-from controller.policy import link_share_bytes_per_us, policy_commands, push_policy
+from controller.policy import (
+    class_policy_commands,
+    link_share_bytes_per_us,
+    policy_commands,
+    push_policy,
+)
 from controller.switch_api import SwitchApiError
 from tests.fake_bmv2 import FakeBmv2
 
@@ -82,8 +88,13 @@ def test_link_share_and_link_bounds() -> None:
 def test_bulk_meter_presets_both_installed() -> None:
     switch = FakeBmv2()
     push_policy(switch, 20, None)
-    assert {key[0] for key in switch.meters} == {METER_AGENT_INTERACTIVE, METER_AGENT_BULK}
+    assert {key[0] for key in switch.meters} == {
+        METER_AGENT_INTERACTIVE,
+        METER_AGENT_BULK,
+        METER_PUNT,
+    }
     assert {key[1] for key in switch.meters} == {0, 1}
+    assert switch.meters[(METER_PUNT, 0)] == "0.000100:20 0.000100:20"
 
 
 def test_class_action_default_is_unknown_treatment_before_table_is_cleared() -> None:
@@ -95,3 +106,12 @@ def test_class_action_default_is_unknown_treatment_before_table_is_cleared() -> 
     switch = FakeBmv2()
     push_policy(switch, 20, None)
     assert switch.defaults[CLASS_ACTION_TABLE] == "set_class_action 0 1 0 0"
+
+
+def test_shared_class_policy_can_install_without_tree_or_punt_tables() -> None:
+    commands = class_policy_commands(20)
+    assert commands[0] == "table_set_default tbl_class_action set_class_action 0 1 0 0"
+    assert "table_clear tbl_class_action" in commands
+    assert "table_add tbl_class_action set_class_action 1 => 34 2 0 48" in commands
+    assert any(command.startswith("meter_set_rates M_AI") for command in commands)
+    assert not any("tbl_tree" in command or "tbl_punt_filter" in command for command in commands)
