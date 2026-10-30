@@ -17,7 +17,7 @@ usage() {
 usage: harness/gateway/vm.sh COMMAND
   start | stop | status      VM lifecycle (stop whenever you are done; it bills per second)
   ssh [ARGS...]              shell, or pass gcloud/ssh args (e.g. --command 'uptime')
-  sync                       copy the committed HEAD to ~/cn_project (results/ are kept)
+  sync                       copy the committed HEAD to ~/cn_project (results/ -> ~/aan-results)
   gate                       make lint, test, check-py39, build on the VM
   install-gateway            (re)install WireGuard gateway scripts and boot unit
   selftest                   tunnel a throwaway client through the gateway and check egress
@@ -61,7 +61,7 @@ set -euo pipefail
 session=$1 device=$2 label=$3 activity=$4 interface=$5
 ip=$(sudo awk '/^AllowedIPs/ {sub("/32", "", $3); print $3}' "/etc/aan-gateway/peers/$device.conf")
 cd ~/cn_project
-sudo .venv/bin/python -m harness.capture start "results/corpus/$session" \
+sudo env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m harness.capture start "results/corpus/$session" \
 	--interface "$interface" --device-ip "$ip" --label "$label" --framework "$activity"
 REMOTE
 }
@@ -77,11 +77,19 @@ sync_tree() {
 set -euo pipefail
 commit=$1
 venvs=$2
+# Run data lives outside the code tree, so replacing the code can never move or lose it.
+results=~/aan-results
+if [ -d ~/cn_project/results ] && [ ! -L ~/cn_project/results ]; then
+	[ ! -e "$results" ] || { echo "both ~/cn_project/results and $results exist" >&2; exit 1; }
+	mv ~/cn_project/results "$results"
+fi
+mkdir -p "$results"
 new=$(mktemp -d ~/cn_project.new.XXXXXX)
 tar -xzf ~/cn_project.upload.tgz -C "$new"
 rm -f ~/cn_project.upload.tgz
-if [ -d ~/cn_project/results ]; then mv ~/cn_project/results "$new/results"; fi
-rm -rf ~/cn_project.old
+ln -s "$results" "$new/results"
+# sudo: root-run tools (captures, PTF) can leave root-owned files in the previous tree.
+sudo rm -rf ~/cn_project.old
 if [ -d ~/cn_project ]; then mv ~/cn_project ~/cn_project.old; fi
 mv "$new" ~/cn_project
 ln -sfn "$venvs/.venv" ~/cn_project/.venv
@@ -161,7 +169,7 @@ capture-start)
 	;;
 capture-stop)
 	session=$(slug "${2:-}")
-	ssh_vm --command "cd ~/cn_project && sudo .venv/bin/python -m harness.capture stop \
+	ssh_vm --command "cd ~/cn_project && sudo env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m harness.capture stop \
 		results/corpus/$session; cat results/corpus/$session/session.json"
 	;;
 *) usage ;;
