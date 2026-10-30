@@ -149,3 +149,30 @@ overhead, not queue differentiation. Live classification under ours collapsed to
 workload is not a trained shape. Neither anchor holds in this configuration. Follow-up tasks
 C0–C4 and D2–D3 in `docs/demo_tasks.md`. Evidence: `results/linux-live/`, `results/linux-ptf/`
 on the VM (append-only; copy off per I6).
+
+## 2026-10-31 — VM resize, access hardening, live gateway (I1–I4, I6)
+
+VM `agent-qos-p4dev` resized `e2-standard-16` → `e2-standard-4` after promoting `34.131.42.32` to
+static address `aan-gateway-ip` (a stopped VM releases an ephemeral IP). SSH restricted to Google
+IAP (`default-allow-ssh` → `35.235.240.0/20`); TCP 22 confirmed closed from the internet; access via
+`harness/gateway/vm.sh` (IAP). WireGuard rule `aan-allow-wireguard` (UDP 51820, tag `aan-gateway`).
+Budget alert ₹3,000/month on the project. `default-allow-rdp` (TCP 3389 from anywhere) remains.
+
+Live gateway installed from `harness/gateway/`: `wg0` in netns `aan-lan` with its UDP socket in the
+root namespace, client traffic forced across the switch-facing veths `gw-lan-sw`/`gw-wan-sw`
+(bridged in bypass mode until G2 attaches BMv2), MASQUERADE to `ens4`, MSS clamping, MTU 1280,
+boot-time unit. Verified on the VM: selftest PASS (egress IP = VM IP, packets counted on
+`gw-lan-sw`, RTT to 1.1.1.1 ≈ 1.2 ms); two restarts safe; bypass off → no connectivity, on → PASS;
+teardown idempotent with no leftovers; reboot → gateway active and PASS. Not yet verified: a real
+phone over cellular (I2 pending).
+
+C4 lead: `harness/runtime.py` starts `simple_switch` without `--log-console`, but the installed
+BMv2 1.15.7 has logging compiled in (logging options accepted). BMv2 performance builds use
+`--disable-logging-macros --disable-elogger` and `-O3`; first comparison for the 490 ms overhead.
+
+DESIGN GAP: `harness/gateway/` is a new subdirectory not in the frozen design.md §3 layout
+(handoff §6 item 7). Gateway names/addresses live in `harness/gateway/gateway.env`; C1 decides
+whether the switch-facing names move into `common/contracts.py`.
+
+Evidence of the first Linux run archived to `results/vm-evidence/2026-10-31/evidence.tar.gz`
+(SHA-256 `f7bfe5f6…1967165`).

@@ -15,8 +15,10 @@ any frozen-contract conflict (DESIGN GAP) instead of working around it.
 Host (macOS): 485 pytest passed, `make lint` green, all work committed on `dev-b/p3.6-tree`
 (`47c6023`).
 
-Linux VM `agent-qos-p4dev` (GCP `asia-south2-a`, project `vivid-rush-513007-k5`, Ubuntu 22.04,
-p4c + BMv2 with priority queueing + Mininet + PTF + Python 3.11/3.9; repo at `~/cn_project`):
+Linux VM `agent-qos-p4dev` (GCP `asia-south2-a`, project `vivid-rush-513007-k5`, `e2-standard-4`
+since 2026-10-31, static IP `34.131.42.32`, SSH via IAP only — use `harness/gateway/vm.sh`;
+Ubuntu 22.04, p4c + BMv2 with priority queueing + Mininet + PTF + Python 3.11/3.9; repo at
+`~/cn_project`). The first run below was on the previous `e2-standard-16`:
 
 | Gate | Result |
 |---|---|
@@ -53,12 +55,12 @@ Two conclusions drive the task list:
 
 | ID | Task | Depends on | Definition of done |
 |---|---|---|---|
-| I1 | **VM cost and lifecycle.** The VM is an `e2-standard-16` (≈ $0.78/h in Delhi, ≈ $19/day) running since 28 Oct (est. ≈ $50 so far; exact figure in Console → Billing → Reports). Stop it when idle. Resize to `e2-standard-4` (`gcloud compute instances stop` → `set-machine-type --machine-type e2-standard-4` → `start`; ≈ $0.19/h, adequate for a 10 Mbps BMv2 demo; pin the switch to one core for overhead runs per §7.18). Promote `34.131.42.32` to a static address. Enable `billingbudgets.googleapis.com` and set a budget alert. Firewall: UDP 51820 from anywhere, SSH from own IP only. | — | `describe` shows `e2-standard-4` + static address; budget alert received; VM stopped outside work sessions. |
-| I2 | **WireGuard server on the VM.** `apt install wireguard qrencode`; `wg0` per §3; `net.ipv4.ip_forward=1`; MASQUERADE to `ens4`; scripts `harness/gateway/add_device.sh` (key pair, profile, QR) and `revoke_device.sh`. Test from the Android phone over its own hotspot. | I1 | Phone with profile: `curl ifconfig.me` returns the VM IP; a laptop onboarded via QR does the same; scripts committed. |
-| I3 | **Netns/veth plumbing and bypass.** `harness/gateway/netsetup.sh` creates netns `lan`, moves `wg0` in, creates `gw-lan`/`gw-lan-sw` and `gw-wan`/`gw-wan-sw` veth pairs with the §3 addresses/routes/NAT, disables offloads and IPv6 on the `-sw` ends; `teardown.sh` reverses; `bypass.sh` bridges `gw-lan-sw`↔`gw-wan-sw` directly for when `simple_switch` is down. | I2 | With bypass active a tunnelled phone browses; `tcpdump -i gw-lan-sw` shows client packets; teardown returns to the I2 state. |
-| I4 | **Mac access and sync.** Aliases for VM start/stop, dashboard tunnel (`gcloud compute ssh agent-qos-p4dev --zone asia-south2-a -- -L 8080:localhost:8080`), and code sync (`git archive HEAD \| gzip \| gcloud compute ssh … 'tar -xz -C ~/cn_project'`, or push the branch and `git pull`). Documented in `docs/demo_runbook.md`. | I1 | One command each for start, sync, tunnel, stop. |
-| I5 | **Demo-day devices.** Android phone as hotspot with a WireGuard profile (video call); team laptop with a profile (agent bulk + MCP-tool agent); printed QR card with the G7 consent text. | I2, G7 | Dry run: two devices through the tunnel while the dashboard is open on the Mac. |
-| I6 | **Evidence archive.** After each VM run, copy `results/linux-live`, `results/linux-ptf` and later run directories off the VM (append-only, §7.19) to the team's shared storage; never into git. | — | Archive index with run directory, config hash, commit, date. |
+| I1 | **Done 2026-10-31.** Resized `e2-standard-16` → `e2-standard-4` (≈ ₹16/h running; stopped, the 40 GB disk + static IP still cost ≈ ₹1,000/month). `34.131.42.32` is now static address `aan-gateway-ip`. Budget "AgentQOS VM" ₹3,000/month, alerts at 50/90/100 % actual and 100 % forecast. Firewall: `aan-allow-wireguard` UDP 51820 to tag `aan-gateway`; SSH via IAP only (`default-allow-ssh` narrowed to `35.235.240.0/20`, plus `aan-allow-ssh-iap`). Open: `default-allow-rdp` still allows TCP 3389 from anywhere (nothing listens; delete when convenient). | — | Verified: `vm.sh status` → `e2-standard-4`, static IP; TCP 22 closed from the internet; IAP SSH works; budget listed. Keep the VM stopped outside work sessions. |
+| I2 | **Server done; phone test pending (Shashank).** WireGuard lives in netns `aan-lan` (`harness/gateway/install.sh`, `netsetup.sh`, boot unit `aan-gateway.service`). Profiles via `vm.sh add-device NAME` / `revoke-device NAME`; created `shashank-phone` (10.42.0.10) and `team-laptop` (10.42.0.11), saved to `~/.aan-gateway/` on the Mac (they contain private keys; delete after import). | I1 | Verified on the VM: `vm.sh selftest` PASS (throwaway client → tunnel → switch LAN port → NAT; egress IP = VM IP). Pending: phone on its own hotspot imports the QR; `https://1.1.1.1/cdn-cgi/trace` on the phone shows `ip=34.131.42.32`. |
+| I3 | **Done 2026-10-31.** `netsetup.sh` / `teardown.sh` / `bypass.sh on\|off\|status`; the gateway starts in bypass mode at boot. | I2 | Verified: two restarts → selftest PASS (UDP port reuse safe); bypass off → no connectivity; bypass on → PASS; teardown twice leaves no links, netns or NAT rules; reboot → gateway active, selftest PASS. |
+| I4 | **Done 2026-10-31.** `harness/gateway/vm.sh` (start, stop, status, ssh, sync, gate, install-gateway, selftest, add-device, revoke-device, tunnel); operations in `docs/demo_runbook.md`. | I1 | All subcommands exercised; fake-gcloud tests pin argument order. |
+| I5 | Demo-day devices. Phone and laptop profiles exist (I2). Remaining: one walk-in profile per device (`walkin-01`, …), the printed QR card once the G7 consent text is agreed, dry run with the dashboard. | I2, G7, G4 | Dry run: two devices through the tunnel while the dashboard is open on the Mac. |
+| I6 | **Done for 2026-10-31.** `results/vm-evidence/2026-10-31/evidence.tar.gz` on the Mac (gitignored; `SHA256SUMS` alongside; `linux-live`, `linux-ptf`, `vm-gate`). Repeat after every VM session (command in the runbook); shared team storage still to choose. | — | Archive index with run directory, config hash, commit, date. |
 
 ## 2. Code tasks — owners: Dev A / B / C (execute with Claude Opus 5.5)
 
@@ -89,7 +91,12 @@ responsible file with a `// §7.10` comment; PTF suite passes on the VM. Verify:
 
 **C4 — Pipeline overhead (P4.3, blocks every QoS claim)** · Dev A, Dev B assists · *design §10, §7.18*
 Context: `ours` adds ≈ 490 ms over FIFO at the same offered load and queue rate, uniformly across
-classes. Hypotheses, in order: (a) `simple_switch` built or started with per-packet logging
+classes. Lead (Dev B, 2026-10-31): `harness/runtime.py` does not pass `--log-console`, but the
+installed `simple_switch` 1.15.7 has logging compiled in (`--log-console`, `--log-file`,
+`--nanolog` are accepted). BMv2's performance guidance is to build with
+`--disable-logging-macros --disable-elogger` and `-O3`; build that as a second binary (PTF debugging
+still needs the logging one) and compare first. Hypotheses, in order: (a) `simple_switch` built or
+started with per-packet logging
 (`--log-console`/debug build); (b) clone-to-CPU volume: `tbl_punt_filter`/`M_PUNT` should cap
 punts at `PUNT_RATE_PPS`; verify punt counters versus packets; (c) intrinsic cost of eight
 range-table lookups + registers + sketch per packet on one BMv2 thread. Method: run `l2fwd` vs
@@ -198,19 +205,23 @@ re-gate if misclassified. Never infer labels for walk-ins.
 QR card states what is captured; header-only; walk-in data deleted after the demo; VM wiped of
 captures before shutdown. Written policy in the runbook.
 
-Critical path — infra: I1 → I2 → I3 → G2; I4 now; I5 before G5.
+Critical path — infra: I1, I3, I4, I6 done; I2 needs the phone test; G2 can start once C1 is
+approved (I3's interfaces are live); I5 before G5.
 Critical path — code: C4 ∥ D2 now → D3 → D4 → D7; C0–C3 alongside; G2 (after I3 + C1) → G3/G4 → G5.
 
 ## 3. Shared interface (fixed so both sides proceed independently)
 
 | Item | Value |
 |---|---|
-| VM | `agent-qos-p4dev`, `asia-south2-a`, external IP `34.131.42.32` (to be made static) |
+| VM | `agent-qos-p4dev`, `asia-south2-a`, `e2-standard-4`, static IP `34.131.42.32`, SSH via IAP (`harness/gateway/vm.sh`) |
 | Repo on VM | `~/cn_project`; `.venv` (py3.11: pytest, ruff, ptf, mininet, sklearn) and `.venv-ryu` (py3.9) |
-| WireGuard | `wg0`, server `10.42.0.1/24`, UDP `51820`, clients from `10.42.0.10`, full tunnel, DNS `10.42.0.1` |
-| Netns `lan` | `wg0`; `gw-lan` `10.43.0.2/30`, default via `10.43.0.1` |
+| Settings | `harness/gateway/gateway.env` is the single source for every name and address below |
+| WireGuard | `wg0`, server `10.42.0.1/24`, UDP `51820`, clients `10.42.0.10`–`.250` (`.254` = selftest), full tunnel incl. `::/0`, DNS `1.1.1.1, 8.8.8.8` (queries cross the switch too), MTU 1280 |
+| Netns `aan-lan` | `wg0`; `gw-lan` `10.43.0.2/30`, default via `10.43.0.1` |
 | Root netns | `gw-wan` `10.43.0.1/30`; route `10.42.0.0/24 via 10.43.0.2`; MASQUERADE out `ens4` |
-| BMv2 attach | `gw-lan-sw` = LAN port, `gw-wan-sw` = WAN port, `gw-cpu` = CPU port 255; pipeline JSON from `build/` |
+| BMv2 attach | `gw-lan-sw` = LAN port, `gw-wan-sw` = WAN port; CPU port 255 via the existing contracts names `CPU_SWITCH_INTERFACE`/`CPU_CONTROLLER_INTERFACE` (G2 creates that veth); offloads and IPv6 already off on the `-sw` ends; pipeline JSON from `build/` |
+| Bypass | `/usr/local/lib/aan-gateway/bypass.sh on\|off\|status`; G2 runs `off` before starting `simple_switch` and `on` when it stops — never both |
+| Selftest | `sudo /usr/local/lib/aan-gateway/selftest.sh` (or `vm.sh selftest`): tunnelled client on the VM, no phone needed; G2/G4 use it for their checks |
 | Port numbers | proposed LAN = 1, WAN = 4 pending C1 |
 | Dashboard | VM `127.0.0.1:8080`; Mac via SSH tunnel |
 | Live snapshot | `results/live/snapshot.json`, atomic replace, schema = `eval.metrics` plot summary |
