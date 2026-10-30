@@ -23,6 +23,7 @@ from common.contracts import (
     EXPERIMENT_CONFIG_FIELDS,
     EXPERIMENT_SYSTEMS,
     EXPERIMENT_TOPOLOGY,
+    GATEWAY_TOPOLOGY,
     MAX_AGENT_SHARE_PCT,
     MAX_LINK_MBPS,
     MIN_AGENT_SHARE_PCT,
@@ -108,8 +109,8 @@ def validate_config(raw: object) -> ExperimentConfig:
 
     if system not in EXPERIMENT_SYSTEMS:
         raise ConfigError(f"system must be one of {EXPERIMENT_SYSTEMS}")
-    if topology != EXPERIMENT_TOPOLOGY:
-        raise ConfigError(f"topology must be {EXPERIMENT_TOPOLOGY}")
+    if topology not in (EXPERIMENT_TOPOLOGY, GATEWAY_TOPOLOGY):
+        raise ConfigError(f"topology must be {EXPERIMENT_TOPOLOGY} or {GATEWAY_TOPOLOGY}")
     if link_mbps < MIN_LINK_MBPS or link_mbps > MAX_LINK_MBPS:
         raise ConfigError(f"link_mbps must be between {MIN_LINK_MBPS} and {MAX_LINK_MBPS}")
     if duration_s <= 0:

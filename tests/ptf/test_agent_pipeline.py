@@ -15,6 +15,7 @@ from scapy.packet import Raw
 from common.contracts import (
     CLASS_TREATMENTS,
     CM_SKETCH_COLUMNS,
+    CM_SKETCH_REGISTERS,
     CPU_CLONE_SESSION,
     CPU_PORT,
     PROTO_META_EXT_COUNT_SHIFT,
@@ -62,6 +63,14 @@ class AgentPipelineSmokeTest(BaseTest):
         self.assertEqual(len(values), 1)
         return values[0]
 
+    def _assert_sketch(self, source: int, expected: int) -> None:
+        # §7.10: this fresh, controller-free switch stays in epoch 0 during the test.
+        # Each distinct new flow from this source increments every row exactly once.
+        for row, column in enumerate(sketch_columns(source)):
+            self.assertEqual(
+                self._read(CM_SKETCH_REGISTERS[0], row * CM_SKETCH_COLUMNS + column), expected
+            )
+
     def runTest(self) -> None:  # noqa: N802
         """Exercise clone metadata, TLS/sketch state, override DSCP and fragment fallback."""
         client_mac = "00:00:00:00:00:01"
@@ -83,6 +92,8 @@ class AgentPipelineSmokeTest(BaseTest):
             / Raw(client_hello())
         )
         original = bytes(hello)
+        source = int(ipaddress.IPv4Address(client_ip))
+        self._assert_sketch(source, 0)
         cpu = struct.pack(
             "!HBBHH",
             slot,
@@ -96,35 +107,52 @@ class AgentPipelineSmokeTest(BaseTest):
         testutils.verify_packet(self, cpu + original, self._port(self.cpu_port))
         testutils.verify_no_other_packets(self)
         self.assertEqual(self._read("reg_pkt_count", slot), 1)
+        self._assert_sketch(source, 1)
 
-        # §7.15: malformed TLS stays best-effort and cannot invent JA4 features or a punt.
-        malformed = (
+        # §7.10: count a second valid flow before testing malformed TLS separately.
+        second_flow = (
             Ether(src=client_mac, dst=target_mac)
             / IP(src=client_ip, dst=target_ip)
             / TCP(sport=40002, dport=443, flags="PA")
-            / Raw(b"\x16\x03" + b"\x00" * 42)
+            / Raw(b"plain TCP payload")
         )
-        malformed_key = flow_key_bytes(
-            int(ipaddress.IPv4Address(client_ip)),
-            int(ipaddress.IPv4Address(target_ip)),
-            6,
-            40002,
-            443,
-        )
-        testutils.send_packet(self, self._port(self.client_port), bytes(malformed))
-        testutils.verify_packet(self, bytes(malformed), self._port(self.target_port))
+        testutils.send_packet(self, self._port(self.client_port), bytes(second_flow))
+        testutils.verify_packet(self, bytes(second_flow), self._port(self.target_port))
         testutils.verify_no_other_packets(self)
-        self.assertEqual(
-            self._read("reg_proto_meta", flow_slot(malformed_key)), PROTO_META_PAYLOAD_SEEN
-        )
+        self._assert_sketch(source, 2)
+
+        # §7.15: malformed TLS forwards without claiming state or emitting a punt.
+        trailing = bytearray(client_hello())
+        trailing[3:5] = (int.from_bytes(trailing[3:5], "big") + 1).to_bytes(2, "big")
+        trailing[6:9] = (int.from_bytes(trailing[6:9], "big") + 1).to_bytes(3, "big")
+        trailing.extend(b"x")
+        for port, payload in enumerate((b"\x16\x03" + b"\x00" * 42, bytes(trailing)), start=40003):
+            malformed = (
+                Ether(src=client_mac, dst=target_mac)
+                / IP(src=client_ip, dst=target_ip)
+                / TCP(sport=port, dport=443, flags="PA")
+                / Raw(payload)
+            )
+            malformed_key = flow_key_bytes(
+                int(ipaddress.IPv4Address(client_ip)),
+                int(ipaddress.IPv4Address(target_ip)),
+                6,
+                port,
+                443,
+            )
+            testutils.send_packet(self, self._port(self.client_port), bytes(malformed))
+            testutils.verify_packet(self, bytes(malformed), self._port(self.target_port))
+            testutils.verify_no_other_packets(self)
+            self.assertEqual(self._read("reg_proto_meta", flow_slot(malformed_key)), 0)
+            self.assertEqual(self._read("reg_pkt_count", flow_slot(malformed_key)), 0)
+            self.assertEqual(self._read("reg_flow_key", flow_slot(malformed_key)), 0)
         self.assertEqual(self._read("reg_flow_key", slot), flow_tag(key))
         self.assertEqual(
             self._read("reg_proto_meta", slot),
             PROTO_META_PAYLOAD_SEEN | (4 << PROTO_META_EXT_COUNT_SHIFT) | int(AlpnClass.H2),
         )
-        source = int(ipaddress.IPv4Address(client_ip))
-        for row, column in enumerate(sketch_columns(source)):
-            self.assertEqual(self._read("reg_cm_sketch_0", row * CM_SKETCH_COLUMNS + column), 1)
+        # §7.10/§7.15: only the valid flows counted; malformed TLS cannot add a new flow.
+        self._assert_sketch(source, 2)
 
         # §7.15: a fragment forwards with UNKNOWN treatment and cannot touch flow registers.
         fragment = (
@@ -136,6 +164,7 @@ class AgentPipelineSmokeTest(BaseTest):
         testutils.verify_packet(self, bytes(fragment), self._port(self.target_port))
         testutils.verify_no_other_packets(self)
         self.assertEqual(self._read("reg_pkt_count", slot), 1)
+        self._assert_sketch(source, 2)
 
         # §7.16: exact HUMAN override changes DSCP without affecting forwarding.
         self.api.apply_flow_overrides(

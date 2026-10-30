@@ -75,7 +75,14 @@ control EgressPipeline(
     inout metadata_t meta,
     inout standard_metadata_t standard_metadata)
 {
-    apply { }
+    apply {
+#ifdef AAN_GATEWAY_MODE
+        // C1: a flood replica never returns to its ingress link (§7.15 fail-open topology).
+        if (standard_metadata.egress_port == standard_metadata.ingress_port) {
+            mark_to_drop(standard_metadata);
+        }
+#endif
+    }
 }
 
 control ComputeChecksumControl(

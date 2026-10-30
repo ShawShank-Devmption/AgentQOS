@@ -85,3 +85,34 @@ def test_live_service_reports_failed_cpu_clone_intake() -> None:
     service = ControllerService(Mock(), Mock(), Mock(), Mock(), BoundedPuntQueue(1))
     with pytest.raises(RuntimeError, match="CPU clone intake failed"):
         service.run(threading.Event(), failed)
+
+
+def test_empty_refiner_avoids_switch_snapshot_but_keeps_epoch_maintenance() -> None:
+    from common.compiled_tree import load_compiled_tree
+    from controller.reclassifier import Reclassifier
+
+    api, epochs = Mock(), Mock()
+    classifier = Reclassifier(load_compiled_tree(Path("tests/fixtures/smoke_tree.json")))
+    service = ControllerService(api, classifier, epochs, Mock(), BoundedPuntQueue(1))
+    with patch("controller.app.collect_snapshot") as snapshot:
+        service.step(0)
+        service.step(2_000_000)
+    snapshot.assert_not_called()
+    assert epochs.tick.call_count == 2
+    api.apply_flow_overrides.assert_not_called()
+
+
+def test_first_identity_and_unacknowledged_override_require_snapshots() -> None:
+    from common.compiled_tree import load_compiled_tree
+    from controller.reclassifier import Reclassifier
+
+    tree = load_compiled_tree(Path("tests/fixtures/smoke_tree.json"))
+    classifier = Reclassifier(tree)
+    assert classifier.needs_snapshot is False
+    classifier.observe(FlowObservation(1, FLOW, TrafficClass.UNKNOWN))
+    assert classifier.needs_snapshot is True
+    replacement = Reclassifier(tree)
+    replacement.acknowledge((OverrideChange("upsert", FLOW, TrafficClass.AGENT_INTERACTIVE),))
+    assert replacement.needs_snapshot is True
+    replacement.acknowledge((OverrideChange("delete", FLOW, None),))
+    assert replacement.needs_snapshot is False

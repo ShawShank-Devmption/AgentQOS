@@ -4,7 +4,11 @@
 #include "headers.p4"
 #include "parser.p4"
 
+#ifdef AAN_GATEWAY_MODE
+@name(".reg_congestion_flag") register<bit<1>>(2) reg_congestion_flag;
+#else
 @name(".reg_congestion_flag") register<bit<1>>(1) reg_congestion_flag;
+#endif
 
 control VerifyChecksumControl(
     inout headers_t hdr,
@@ -86,7 +90,13 @@ control IngressPipeline(
         }
         if (hdr.ethernet.isValid()) { tbl_l2_forward.apply(); }
         tbl_class_action.apply();
+#ifdef AAN_GATEWAY_MODE
+        // §7.7: ingress reads only the congestion flag of its selected egress direction.
+        reg_congestion_flag.read(meta.congestion,
+            standard_metadata.egress_spec == (bit<9>) GATEWAY_LAN_PORT ? 32w0 : 32w1);
+#else
         reg_congestion_flag.read(meta.congestion, 0);
+#endif
         // §7.16: interactive red is ECN-only; only bulk may be dropped on red.
         if (meta.meter_id == 1) {
             M_AI.execute_meter((bit<32>) meta.congestion, meta.meter_color);

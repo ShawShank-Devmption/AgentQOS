@@ -36,3 +36,18 @@ def test_only_target_link_is_the_bottleneck() -> None:
 def test_link_capacity_must_stay_in_designed_range(link_mbps: int) -> None:
     with pytest.raises(ValueError, match="between 10 and 50"):
         topology_manifest(link_mbps)
+
+
+def test_inline_gateway_manifest_keeps_directional_flags_and_shaping_separate() -> None:
+    from harness.topology import gateway_manifest
+
+    manifest = gateway_manifest(10)
+    assert manifest["name"] == "live_gateway"
+    assert manifest["ports"] == [
+        {"port": 1, "interface": "gw-lan-sw", "congestion_index": 0},
+        {"port": 4, "interface": "gw-wan-sw", "congestion_index": 1},
+    ]
+    assert manifest["queue_rate_pps"] == 10_000_000 // (8 * 1514)
+    assert manifest["cpu_port"] == 255
+    with pytest.raises(ValueError):
+        gateway_manifest(20.5)

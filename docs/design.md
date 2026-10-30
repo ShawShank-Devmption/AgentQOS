@@ -180,6 +180,34 @@ feature-vector order/widths, table names, CPU header or corpus/experiment schema
   Masking the flag during decode preserves the ten-feature schema (§7.9). Payloads requiring
   TCP reassembly remain unsupported and receive the documented fail-open treatment.
 
+#### C1 live_gateway additions — 31 October 2026
+
+Team approval was confirmed by the project owner in the implementation session on 2026-10-31.
+`docs/c1_live_gateway_proposal.md` records the reviewed proposal. Existing choke_v1 contracts
+remain unchanged. `common/contracts.py` defines the new gateway constants:
+
+- `GATEWAY_TOPOLOGY=live_gateway`; LAN port 1/interface `gw-lan-sw`, WAN port 4/interface
+  `gw-wan-sw`, CPU port remains 255/interface `gw-cpu`.
+- `GATEWAY_MAX_FRAME_BYTES=1514` (MTU 1500 without VLANs/jumbos) and health polling 0.25 s.
+- Separate gateway artifacts use `reg_congestion_flag[2]`: index 0 = LAN egress,
+  index 1 = WAN egress. Original artifacts retain one entry, index 0. Egress maintains
+  hysteresis independently; ingress selects the flag after L2 egress selection. CPU clones
+  neither update flags nor join flood groups. Meter presets stay shared across directions.
+- Both gateway ports get queue depth `4*CONGESTION_HIGH_PACKETS` and per-queue packet rate
+  `link_mbps*1_000_000 // (8*GATEWAY_MAX_FRAME_BYTES)`. This does not guarantee aggregate Mbps:
+  I3 must supply aggregate Linux tc shaping on both egress links. Report achieved throughput.
+- Flooding uses LAN/WAN only; gateway egress suppresses replicas returning to original ingress.
+  This topology loop prevention is independent of classification uncertainty.
+- The §4.6 field set is unchanged; topology accepts `choke_v1` and `live_gateway`.
+  A workload must explicitly support its topology; Mininet workloads reject live_gateway.
+
+G2 reads peer unicast MACs from I3's gw-lan/gw-wan interfaces. I3 must provide the handover
+script contract before live activation: `netsetup.sh --switch` removes bypass forwarding only
+(without recreating interfaces or removing tc shaping); `bypass.sh` restores direct forwarding
+idempotently while retaining aggregate tc shaping. G2 checks both scripts before launching,
+stops the owned switch before invoking bypass on any exit/failure, and never deletes I3 links.
+This handover is a required I3 integration dependency, not a script implemented by G2.
+
 ### 4.3 Feature vector (order frozen — tree compiler and P4 depend on it)
 
 | Idx | Name | Type/units | Computed |
@@ -216,7 +244,7 @@ so P4 and entries never drift.
 ```yaml
 name: burst_sweep_v1
 system: ours | fifo | diffserv | fairq | app_limiter
-topology: choke_v1          # named topo in harness/topology.py
+topology: choke_v1 | live_gateway  # Mininet / inline gateway, respectively
 link_mbps: 20
 agent_share_pct: [10,30,50,70,90]
 burst_intensity: [low, med, high]   # defined in harness docs as flows/sec + parallelism

@@ -5,6 +5,10 @@ from pathlib import Path
 
 import pytest
 
+# C0/P3.16: only the PTF runner owns live switch parameters/dataplane setup.
+# PTF imports suites directly and does not load pytest's conftest.py.
+collect_ignore = ["ptf"]
+
 
 @pytest.fixture(autouse=True)
 def isolated_lock_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

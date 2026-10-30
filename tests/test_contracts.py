@@ -171,3 +171,22 @@ def test_meter_presets_are_two_rate_and_protective_caps_agents_at_30_pct() -> No
         assert set(shares) == {METER_AGENT_INTERACTIVE, METER_AGENT_BULK}
         assert all(0 < s.cir_pct < s.pir_pct <= 100 for s in shares.values())
     assert sum(s.cir_pct for s in METER_PRESETS[PRESET_PROTECTIVE].values()) == 30
+
+
+def test_c1_gateway_additions_preserve_original_choke_v1() -> None:
+    from common import contracts
+    from harness.topology import topology_manifest
+
+    assert contracts.EXPERIMENT_TOPOLOGY == "choke_v1"
+    assert contracts.GATEWAY_TOPOLOGY == "live_gateway"
+    assert contracts.GATEWAY_PORTS == (1, 4)
+    assert contracts.GATEWAY_LAN_INTERFACE == "gw-lan-sw"
+    assert contracts.GATEWAY_WAN_INTERFACE == "gw-wan-sw"
+    assert contracts.GATEWAY_CPU_INTERFACE == "gw-cpu"
+    assert contracts.GATEWAY_MAX_FRAME_BYTES == 1514
+    assert contracts.GATEWAY_HEALTH_POLL_S == 0.25
+    manifest = topology_manifest(20)
+    shaped = [link for link in manifest["links"] if "bw_mbps" in link]
+    assert len(shaped) == 1
+    assert shaped[0]["switch_port"] == contracts.TARGET_SWITCH_PORT
+    assert contracts.SENDER_SWITCH_PORTS == (1, 2, 3)

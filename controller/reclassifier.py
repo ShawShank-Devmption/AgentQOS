@@ -175,6 +175,12 @@ class Reclassifier:
         self._desired: dict[FlowIdentity, TrafficClass] = {}
         self._installed: dict[FlowIdentity, TrafficClass] = {}
 
+    @property
+    def needs_snapshot(self) -> bool:
+        """Return whether identity tracking or unacknowledged overrides require a sweep."""
+        # §7.4/§7.5: avoid empty full-array reads, retaining pending ownership and write retries.
+        return bool(self._flows or self._pending or self._desired or self._installed)
+
     def observe(self, observation: FlowObservation) -> None:
         """Remember a punt identity without trusting its slot until a subsequent sweep."""
         if not 0 <= observation.slot < FLOW_SLOTS:

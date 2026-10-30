@@ -1,0 +1,9 @@
+name: gateway_ours
+system: ours
+topology: live_gateway
+link_mbps: 10
+agent_share_pct: [50]
+burst_intensity: [low]
+duration_s: 120
+seeds: [1]
+outputs: results/gateway_ours/
