@@ -4,8 +4,8 @@ Status date: 2026-10-31. Spec authority: `docs/requirements.md`, `docs/design.md
 `docs/tasks.md`. This document adds the remaining work for the centerpiece demo (P3.14/P3.15/P5.5)
 and the live-gateway demo, and the evaluation plan that the paper will report.
 
-Ownership: **I-tasks (gcloud, VM networking) → Shashank. C/D/G-tasks (repository code) → Dev A/B/C,
-executed with Claude Opus 5.5.** Each code task below is written as a self-contained brief:
+Ownership: **I-tasks (gcloud, VM networking) → Shashank, who is also Dev B (CONTROL+ML) and keeps
+Dev B's code tasks. C/D/G-tasks (repository code) → Dev A/B/C, executed with Claude Opus 5.5.** Each code task below is written as a self-contained brief:
 context, files, contracts consumed, definition of done, verification command. The agent executing
 a task must read `CLAUDE.md`, restate the design.md section and task ID before coding, and stop on
 any frozen-contract conflict (DESIGN GAP) instead of working around it.
