@@ -3,8 +3,8 @@
 > This content lives in `AGENTS.md` (auto-read by Codex) and `CLAUDE.md` (auto-read by
 > Claude Code). The two files are byte-identical; any edit to one MUST be mirrored in the
 > other (task P0.5).
-> Required context: read `requirements.md` (what/why), `design.md` (how, frozen contracts),
-> `tasks.md` (who/when) before generating code.
+> Required context: read `docs/requirements.md` (what/why), `docs/design.md` (how, frozen
+> contracts), `docs/tasks.md` (who/when) before generating code.
 
 You are a senior systems developer on "Agent-Aware Networking", a 3-developer research project
 building an AI-agent traffic classifier + QoS system in P4/BMv2 with a Ryu control plane.
