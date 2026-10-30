@@ -165,7 +165,8 @@ def emit_p4_declarations() -> str:
         + [f"            meta.features.{name} : range;" for name in FEATURE_ORDER]
     )
     tables = [
-        f"""    table {name} {{
+        f"""    @name(".{name}")
+    table {name} {{
         key = {{
 {keys}
         }}

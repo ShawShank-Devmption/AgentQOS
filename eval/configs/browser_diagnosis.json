@@ -1,0 +1,16 @@
+{
+  "kind": "local_browser_diagnosis_v1",
+  "seeds": [1, 2, 3],
+  "cv_folds": 5,
+  "held_out_fraction": 0.2,
+  "tree_max_depth": 8,
+  "random_forest_trees": 100,
+  "feature_sets": {
+    "full": ["iat_ewma_us", "iat_var_ewma", "pkt_count", "mean_pkt_size_up", "updown_ratio_x100", "first8_size_bucket", "fanout_new_flows", "tls_ext_count", "tls_alpn_class", "flow_age_ms"],
+    "without_tls": ["iat_ewma_us", "iat_var_ewma", "pkt_count", "mean_pkt_size_up", "updown_ratio_x100", "first8_size_bucket", "fanout_new_flows", "flow_age_ms"],
+    "without_fanout": ["iat_ewma_us", "iat_var_ewma", "pkt_count", "mean_pkt_size_up", "updown_ratio_x100", "first8_size_bucket", "tls_ext_count", "tls_alpn_class", "flow_age_ms"],
+    "timing_and_fanout": ["iat_ewma_us", "iat_var_ewma", "fanout_new_flows", "flow_age_ms"]
+  },
+  "profiles": ["synthetic:human_browsing", "synthetic:agent_browser", "synthetic:agent_mcp_tools"],
+  "browser_profiles": ["synthetic:human_browsing", "synthetic:agent_browser"]
+}

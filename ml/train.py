@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import pickle
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.metrics import f1_score, precision_recall_fscore_support
+from sklearn.metrics import confusion_matrix, f1_score
 from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
 from sklearn.tree import DecisionTreeClassifier
 
@@ -23,6 +24,7 @@ from common.contracts import (
     TIMING_BURST_FEATURES,
     TRAINING_LABELS,
     TREE_MAX_DEPTH,
+    TrafficClass,
 )
 from ml.compile_tree import model_hash
 
@@ -61,6 +63,20 @@ def validate_feature_frame(frame: pd.DataFrame) -> None:
     missing = set(FEATURE_FRAME_COLUMNS) - set(frame.columns)
     if missing:
         raise FeatureFrameError(f"feature table lacks columns {sorted(missing)}")
+    if frame.columns.has_duplicates:
+        raise FeatureFrameError("feature table contains duplicate columns")
+    if frame.empty:
+        raise FeatureFrameError("feature table is empty")
+    if frame[list(FEATURE_FRAME_COLUMNS)].isna().any().any():
+        raise FeatureFrameError("feature table contains null values")
+    for name in ("flow_id", "source_framework"):
+        if not frame[name].map(_valid_identifier).all():
+            raise FeatureFrameError(f"{name} must contain nonempty string identifiers")
+    if frame.duplicated(["flow_id", "checkpoint"]).any():
+        raise FeatureFrameError("feature table repeats a flow checkpoint")
+    for name in ("label", "source_framework"):
+        if (frame.groupby("flow_id")[name].nunique() > 1).any():
+            raise FeatureFrameError(f"conflicting per-flow {name}")
     if not frame["label"].isin([int(label) for label in TRAINING_LABELS]).all():
         raise FeatureFrameError("labels must be 1, 2 or 3 (UNKNOWN never trains, 4.4)")
     if not frame["checkpoint"].isin(FEATURE_CHECKPOINTS).all():
@@ -73,19 +89,30 @@ def validate_feature_frame(frame: pd.DataFrame) -> None:
             raise FeatureFrameError(f"{name} has values outside its {bits}-bit width")
 
 
-def split_held_out(frame: pd.DataFrame, seed: int) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split off HELD_OUT_FRACTION of flows; a flow's checkpoint rows never straddle the split."""
+def split_held_out(
+    frame: pd.DataFrame, seed: int, groups: Mapping[str, str] | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Hold out groups of flows, using flow IDs unless an explicit complete mapping is supplied."""
+    row_groups = _row_groups(frame, groups)
+    if row_groups.nunique() < 2:
+        raise FeatureFrameError("held-out splitting requires at least two independent groups")
     splitter = GroupShuffleSplit(n_splits=1, test_size=HELD_OUT_FRACTION, random_state=seed)
-    train_rows, held_rows = next(splitter.split(frame, groups=frame["flow_id"]))
+    train_rows, held_rows = next(splitter.split(frame, groups=row_groups))
     return frame.iloc[train_rows], frame.iloc[held_rows]
 
 
 def cross_validation_folds(
-    frame: pd.DataFrame, seed: int
+    frame: pd.DataFrame, seed: int, groups: Mapping[str, str] | None = None
 ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
-    """Yield (fit, score) row positions for stratified CV grouped by flow."""
+    """Yield stratified CV row positions, keeping all rows of each explicit group together."""
+    row_groups = _row_groups(frame, groups)
+    if row_groups.nunique() < CV_FOLDS:
+        raise FeatureFrameError(f"cross-validation requires at least {CV_FOLDS} independent groups")
     folds = StratifiedGroupKFold(n_splits=CV_FOLDS, shuffle=True, random_state=seed)
-    yield from folds.split(frame, frame["label"], groups=frame["flow_id"])
+    for fit_rows, score_rows in folds.split(frame, frame["label"], groups=row_groups):
+        if not len(fit_rows) or not len(score_rows):
+            raise FeatureFrameError("cross-validation produced an empty group partition")
+        yield fit_rows, score_rows
 
 
 def check_path_coverage(model: DecisionTreeClassifier) -> None:
@@ -112,7 +139,7 @@ def check_path_coverage(model: DecisionTreeClassifier) -> None:
         raise PathCoverageError(f"7.14: leaves {sorted(uncovered)} lack a timing/burst split")
 
 
-def train(frame: pd.DataFrame, seed: int) -> TrainResult:
+def train(frame: pd.DataFrame, seed: int, groups: Mapping[str, str] | None = None) -> TrainResult:
     """Fit the classifier tree, cross-validate it, and report on the held-out flows.
 
     Raises:
@@ -120,16 +147,31 @@ def train(frame: pd.DataFrame, seed: int) -> TrainResult:
         PathCoverageError: If the fitted tree fails the 7.14 check.
     """
     validate_feature_frame(frame)
-    train_part, held_out = split_held_out(frame, seed)
+    row_groups = _row_groups(frame, groups)
+    train_part, held_out = split_held_out(frame, seed, groups=groups)
+    train_groups = (
+        None if groups is None else {flow_id: groups[flow_id] for flow_id in train_part["flow_id"]}
+    )
     features = train_part[list(FEATURE_ORDER)].to_numpy()
     labels = train_part["label"].to_numpy()
     fold_scores = []
-    for fit_rows, score_rows in cross_validation_folds(train_part, seed):
+    for fit_rows, score_rows in cross_validation_folds(train_part, seed, groups=train_groups):
         fold_model = _new_tree(seed).fit(features[fit_rows], labels[fit_rows])
         predicted = fold_model.predict(features[score_rows])
-        fold_scores.append(float(f1_score(labels[score_rows], predicted, average="macro")))
+        fold_scores.append(
+            float(
+                f1_score(
+                    labels[score_rows],
+                    predicted,
+                    labels=list(TRAINING_LABELS),
+                    average="macro",
+                    zero_division=0,
+                )
+            )
+        )
     model = _new_tree(seed).fit(features, labels)
     check_path_coverage(model)
+    held_reports = _checkpoint_reports(model, held_out)
     report = {
         "seed": seed,
         "model_hash": model_hash(model),
@@ -143,7 +185,24 @@ def train(frame: pd.DataFrame, seed: int) -> TrainResult:
         "feature_importances": dict(
             zip(FEATURE_ORDER, map(float, model.feature_importances_), strict=True)
         ),
-        "held_out": _checkpoint_report(model, held_out),
+        "held_out": {key: value["per_class"] for key, value in held_reports.items()},
+        "held_out_confusion_matrices": {
+            key: value["confusion_matrix"] for key, value in held_reports.items()
+        },
+        "held_out_by_source": {
+            source: _checkpoint_reports(model, held_out[held_out["source_framework"] == source])
+            for source in sorted(frame["source_framework"].unique())
+        },
+        "grouping": {
+            "mode": "flow_id" if groups is None else "explicit",
+            "flow_count": int(frame["flow_id"].nunique()),
+            "group_count": int(row_groups.nunique()),
+            "training_group_count": int(_row_groups(train_part, train_groups).nunique()),
+            "held_out_group_count": int(held_out["flow_id"].map(groups).nunique())
+            if groups is not None
+            else int(held_out["flow_id"].nunique()),
+            "mapping_sha256": _group_mapping_hash(frame, groups),
+        },
     }
     return TrainResult(model, held_out, report)
 
@@ -156,15 +215,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--features", type=Path, required=True)
+    parser.add_argument(
+        "--groups", type=Path, help="Optional flow_id,group_id CSV evaluation sidecar"
+    )
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     try:
-        result = train(pd.read_csv(args.features), args.seed)
+        groups = None if args.groups is None else _load_groups(args.groups)
+        result = train(pd.read_csv(args.features), args.seed, groups=groups)
     except (OSError, ValueError) as exc:
         LOGGER.error("training failed: %s", exc)
         return 1
+    if args.groups is not None:
+        result.report["grouping"]["sidecar_path"] = str(args.groups)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "model.pkl").write_bytes(pickle.dumps(result.model))
     (args.out / "report.json").write_text(json.dumps(result.report, indent=2) + "\n")
@@ -184,24 +249,86 @@ def _new_tree(seed: int) -> DecisionTreeClassifier:
     )
 
 
-def _checkpoint_report(model: DecisionTreeClassifier, held_out: pd.DataFrame) -> dict:
+def _valid_identifier(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _row_groups(frame: pd.DataFrame, groups: Mapping[str, str] | None) -> pd.Series:
+    validate_feature_frame(frame)
+    if groups is None:
+        return frame["flow_id"]
+    if not all(
+        _valid_identifier(key) and _valid_identifier(value) for key, value in groups.items()
+    ):
+        raise FeatureFrameError("group mapping must contain nonempty string flow and group IDs")
+    flows = set(frame["flow_id"])
+    if set(groups) != flows:
+        raise FeatureFrameError("group mapping must cover exactly the feature table's flow IDs")
+    return frame["flow_id"].map(groups)
+
+
+def _load_groups(path: Path) -> dict[str, str]:
+    frame = pd.read_csv(path, dtype=str, keep_default_na=False)
+    if list(frame.columns) != ["flow_id", "group_id"]:
+        raise FeatureFrameError("group sidecar columns must be flow_id,group_id")
+    if frame.empty or frame["flow_id"].duplicated().any():
+        raise FeatureFrameError("group sidecar must contain one unambiguous row per flow")
+    return dict(zip(frame["flow_id"], frame["group_id"], strict=True))
+
+
+def _group_mapping_hash(frame: pd.DataFrame, groups: Mapping[str, str] | None) -> str:
+    pairs = sorted(
+        (flow_id, flow_id if groups is None else groups[flow_id])
+        for flow_id in frame["flow_id"].unique()
+    )
+    return hashlib.sha256(json.dumps(pairs, ensure_ascii=True).encode()).hexdigest()
+
+
+def _checkpoint_reports(model: DecisionTreeClassifier, held_out: pd.DataFrame) -> dict:
+    return {
+        str(checkpoint): _performance_report(model, held_out[held_out["checkpoint"] == checkpoint])
+        for checkpoint in FEATURE_CHECKPOINTS
+    }
+
+
+def _performance_report(model: DecisionTreeClassifier, rows: pd.DataFrame) -> dict:
     labels = [int(label) for label in TRAINING_LABELS]
-    report = {}
-    for checkpoint in FEATURE_CHECKPOINTS:
-        rows = held_out[held_out["checkpoint"] == checkpoint]
-        predicted = model.predict(rows[list(FEATURE_ORDER)].to_numpy())
-        precision, recall, _, support = precision_recall_fscore_support(
-            rows["label"], predicted, labels=labels, zero_division=0
-        )
-        report[str(checkpoint)] = {
-            label.name: {
-                "precision": float(precision[i]),
-                "recall": float(recall[i]),
-                "support": int(support[i]),
-            }
-            for i, label in enumerate(TRAINING_LABELS)
+    predicted = (
+        np.empty(0, dtype=int)
+        if rows.empty
+        else model.predict(rows[list(FEATURE_ORDER)].to_numpy())
+    )
+    counts = (
+        np.zeros((len(labels), len(labels)), dtype=int)
+        if rows.empty
+        else confusion_matrix(rows["label"], predicted, labels=labels)
+    )
+    per_class = {}
+    for i, label in enumerate(TRAINING_LABELS):
+        support = int(counts[i, :].sum())
+        predicted_count = int(counts[:, i].sum())
+        per_class[label.name] = {
+            "precision": float(counts[i, i] / predicted_count) if predicted_count else None,
+            "recall": float(counts[i, i] / support) if support else None,
+            "support": support,
         }
-    return report
+    agent_rows = rows["label"].isin([TrafficClass.AGENT_INTERACTIVE, TrafficClass.AGENT_BULK])
+    agent_support = int(agent_rows.sum())
+    agent_as_human = int((agent_rows & (predicted == TrafficClass.HUMAN_INTERACTIVE)).sum())
+    return {
+        "per_class": per_class,
+        "confusion_matrix": {
+            "labels": [label.name for label in TRAINING_LABELS],
+            "counts": counts.tolist(),
+            "sample_count": len(rows),
+            "available": not rows.empty,
+        },
+        "agent_as_human": {
+            "count": agent_as_human,
+            "support": agent_support,
+            "rate": agent_as_human / agent_support if agent_support else None,
+        },
+    }
 
 
 if __name__ == "__main__":

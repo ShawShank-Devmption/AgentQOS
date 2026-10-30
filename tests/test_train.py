@@ -87,3 +87,187 @@ def test_cli_writes_model_report_and_held_out(tmp_path: Path) -> None:
     assert json.loads((out / "report.json").read_text())["seed"] == 5
     held_out = pd.read_csv(out / "held_out.csv")
     assert list(held_out.columns) == list(FRAME.columns)
+
+
+def _session_groups() -> dict[str, str]:
+    return {flow_id: f"session-{i // 6}" for i, flow_id in enumerate(FRAME["flow_id"].unique())}
+
+
+def test_explicit_groups_never_cross_held_out_or_cv_and_are_seeded() -> None:
+    groups = _session_groups()
+    fit, held = split_held_out(FRAME, seed=3, groups=groups)
+    assert not set(fit["flow_id"].map(groups)) & set(held["flow_id"].map(groups))
+    assert split_held_out(FRAME, seed=3, groups=groups)[0].equals(fit)
+    for fit_rows, score_rows in cross_validation_folds(FRAME, seed=3, groups=groups):
+        fit_groups = set(FRAME.iloc[fit_rows]["flow_id"].map(groups))
+        assert not fit_groups & set(FRAME.iloc[score_rows]["flow_id"].map(groups))
+
+
+@pytest.mark.parametrize("kind", ["missing", "extra", "empty", "null"])
+def test_explicit_group_mapping_must_be_complete_and_unambiguous(kind: str) -> None:
+    groups = _session_groups()
+    flow_id = next(iter(groups))
+    if kind == "missing":
+        del groups[flow_id]
+    elif kind == "extra":
+        groups["unobserved-flow"] = "extra"
+    else:
+        groups[flow_id] = "" if kind == "empty" else None
+    with pytest.raises(FeatureFrameError, match="group"):
+        train(FRAME, seed=11, groups=groups)
+
+
+def test_too_few_independent_groups_fail_before_cross_validation() -> None:
+    groups = {flow_id: "same-session" for flow_id in FRAME["flow_id"].unique()}
+    with pytest.raises(FeatureFrameError, match="group"):
+        list(cross_validation_folds(FRAME, seed=3, groups=groups))
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        "empty",
+        "null_feature",
+        "null_flow",
+        "blank_flow",
+        "null_source",
+        "duplicate",
+        "conflicting_label",
+        "conflicting_source",
+        "duplicate_column",
+    ],
+)
+def test_feature_validation_rejects_ambiguous_or_incomplete_rows(kind: str) -> None:
+    frame = FRAME.copy()
+    if kind == "empty":
+        frame = frame.iloc[:0]
+    elif kind == "null_feature":
+        frame.loc[0, "iat_ewma_us"] = np.nan
+    elif kind == "null_flow":
+        frame.loc[0, "flow_id"] = None
+    elif kind == "blank_flow":
+        frame.loc[0, "flow_id"] = " "
+    elif kind == "null_source":
+        frame.loc[0, "source_framework"] = None
+    elif kind == "duplicate":
+        frame = pd.concat([frame, frame.iloc[:1]], ignore_index=True)
+    elif kind == "conflicting_label":
+        frame.loc[0, "label"] = int(TrafficClass.AGENT_BULK)
+    elif kind == "conflicting_source":
+        frame.loc[0, "source_framework"] = "other"
+    else:
+        frame = pd.concat([frame, frame[["flow_id"]]], axis=1)
+    with pytest.raises(FeatureFrameError):
+        validate_feature_frame(frame)
+
+
+def test_missing_checkpoints_report_unavailable_instead_of_predicting_empty() -> None:
+    frame = FRAME[FRAME["checkpoint"] == 6]
+    report = train(frame, seed=11).report
+    for checkpoint in (16, 64):
+        for metrics in report["held_out"][str(checkpoint)].values():
+            assert metrics["support"] == 0
+            assert metrics["precision"] is None
+            assert metrics["recall"] is None
+        confusion = report["held_out_confusion_matrices"][str(checkpoint)]
+        assert confusion["sample_count"] == 0
+        assert confusion["available"] is False
+        assert confusion["counts"] == [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+
+
+def test_source_report_exposes_browser_agents_mistaken_for_humans() -> None:
+    frame = FRAME.copy()
+    humans = frame[frame["label"] == int(TrafficClass.HUMAN_INTERACTIVE)]
+    browser_agents = humans.copy()
+    browser_agents["flow_id"] = "browser-" + browser_agents["flow_id"]
+    browser_agents["label"] = int(TrafficClass.AGENT_INTERACTIVE)
+    browser_agents["source_framework"] = "playwright"
+    frame = pd.concat([frame, browser_agents], ignore_index=True)
+    report = train(frame, seed=11).report
+    source = report["held_out_by_source"]["playwright"]["16"]
+    matrix = source["confusion_matrix"]
+    # The report must count the actual held-out browser-agent predictions, not all agents.
+    count = matrix["counts"][1][0]
+    assert count > 0
+    assert source["agent_as_human"]["count"] == count
+    support = source["per_class"]["AGENT_INTERACTIVE"]["support"]
+    assert support > 0
+    assert source["agent_as_human"]["support"] == support
+    assert source["agent_as_human"]["rate"] == count / support
+    assert matrix["labels"] == ["HUMAN_INTERACTIVE", "AGENT_INTERACTIVE", "AGENT_BULK"]
+    assert matrix["sample_count"] == support
+    assert source["per_class"]["AGENT_BULK"]["recall"] is None
+
+
+def test_grouped_training_records_provenance_without_adding_model_features() -> None:
+    result = train(FRAME, seed=11, groups=_session_groups())
+    assert result.report["grouping"]["mode"] == "explicit"
+    assert result.report["grouping"]["group_count"] == 30
+    assert result.report["grouping"]["flow_count"] == 180
+    assert len(result.report["grouping"]["mapping_sha256"]) == 64
+    assert result.model.n_features_in_ == len(FEATURE_ORDER)
+    assert list(result.held_out.columns) == list(FRAME.columns)
+    assert train(FRAME, seed=11).report["grouping"]["mode"] == "flow_id"
+
+
+def test_cli_accepts_explicit_group_sidecar(tmp_path: Path) -> None:
+    features = tmp_path / "features.csv"
+    FRAME.to_csv(features, index=False)
+    groups_path = tmp_path / "groups.csv"
+    pd.DataFrame(_session_groups().items(), columns=["flow_id", "group_id"]).to_csv(
+        groups_path, index=False
+    )
+    out = tmp_path / "run"
+    assert (
+        main(
+            [
+                "--features",
+                str(features),
+                "--groups",
+                str(groups_path),
+                "--seed",
+                "11",
+                "--out",
+                str(out),
+            ]
+        )
+        == 0
+    )
+    report = json.loads((out / "report.json").read_text())
+    assert report["grouping"]["mode"] == "explicit"
+    assert report["grouping"]["sidecar_path"] == str(groups_path)
+
+
+@pytest.mark.parametrize("kind", ["duplicate", "conflict", "columns", "blank"])
+def test_cli_rejects_malformed_group_sidecar(tmp_path: Path, kind: str) -> None:
+    features = tmp_path / "features.csv"
+    FRAME.to_csv(features, index=False)
+    groups = pd.DataFrame(_session_groups().items(), columns=["flow_id", "group_id"])
+    if kind in ("duplicate", "conflict"):
+        extra = groups.iloc[:1].copy()
+        if kind == "conflict":
+            extra["group_id"] = "conflict"
+        groups = pd.concat([groups, extra], ignore_index=True)
+    elif kind == "columns":
+        groups = groups.rename(columns={"group_id": "session_id"})
+    else:
+        groups.loc[0, "group_id"] = " "
+    groups_path = tmp_path / "groups.csv"
+    groups.to_csv(groups_path, index=False)
+    out = tmp_path / "run"
+    assert (
+        main(
+            [
+                "--features",
+                str(features),
+                "--groups",
+                str(groups_path),
+                "--seed",
+                "11",
+                "--out",
+                str(out),
+            ]
+        )
+        == 1
+    )
+    assert not out.exists()
