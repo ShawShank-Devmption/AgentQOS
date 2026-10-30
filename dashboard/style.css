@@ -1,0 +1,20 @@
+:root { font-family: system-ui, sans-serif; color: #172a3a; background: #eef2f5; }
+body { margin: 0; }
+main { max-width: 1200px; margin: 0 auto; padding: 2rem 1.25rem; }
+h1 { font-size: clamp(2rem, 5vw, 3.4rem); margin: .3rem 0; letter-spacing: -.04em; }
+h2 { margin-top: 0; font-size: 1.15rem; }
+p { line-height: 1.6; }
+.eyebrow { text-transform: uppercase; letter-spacing: .12em; font-weight: 700; color: #215e70; }
+header { margin-bottom: 2rem; }
+section { background: white; border: 1px solid #cbd6de; border-radius: .65rem;
+  padding: 1.25rem; margin: 1rem 0; }
+#status { font-weight: 650; }
+#status[data-state="unavailable"] { color: #972e19; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+caption { text-align: left; padding-bottom: .75rem; font-size: .9rem; }
+th, td { text-align: right; border-bottom: 1px solid #dce4ea; padding: .8rem .6rem; }
+th:first-child { text-align: left; }
+thead { background: #edf4f6; }
+tbody th { overflow-wrap: anywhere; font-size: .85rem; }
+footer, noscript { display: block; padding: 1rem 0; line-height: 1.6; }

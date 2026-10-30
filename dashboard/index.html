@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent-Aware Networking · Measurements</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">Agent-Aware Networking</p>
+      <h1>Measured traffic</h1>
+      <p>Read-only measurement snapshots. Polling every 2 seconds does not imply a live switch.</p>
+    </header>
+    <section aria-labelledby="source-heading">
+      <h2 id="source-heading">Source status</h2>
+      <p id="status" role="status" aria-live="polite">Waiting for measurements…</p>
+      <p id="updated">Source modification time: unavailable</p>
+      <p id="window">Measurement duration: unavailable</p>
+      <p id="checked">Last successful validation: none</p>
+    </section>
+    <section aria-labelledby="traffic-heading">
+      <h2 id="traffic-heading">Per-class measurements</h2>
+      <p>Classes describe independent workload ground truth, not classifier predictions.
+        Unavailable metrics are shown as “No samples”; lost packets never count as zero latency.</p>
+      <div class="table-scroll">
+        <table>
+          <caption>Packet latency in milliseconds and received-byte throughput over the full window</caption>
+          <thead><tr>
+            <th scope="col">Class</th><th scope="col">p50 (ms)</th>
+            <th scope="col">p95 (ms)</th><th scope="col">p99 (ms)</th>
+            <th scope="col">Throughput (Mbps)</th><th scope="col">Sent</th>
+            <th scope="col">Received</th><th scope="col">Lost / censored</th>
+          </tr></thead>
+          <tbody id="classes"></tbody>
+        </table>
+      </div>
+    </section>
+    <section aria-labelledby="tools-heading">
+      <h2 id="tools-heading">Target-observed tool calls</h2>
+      <p id="tools">No samples</p>
+      <p id="completion">Completion percentiles: No samples</p>
+      <p>Incomplete calls remain in the counts and are excluded from completion percentiles.
+        Calls without a durable target start record may be unobservable; these counts alone
+        cannot establish absence of starvation.</p>
+    </section>
+    <footer>This view does not verify QoS operation or the end-to-end centerpiece demo.</footer>
+    <noscript>JavaScript is required to poll the local measurement API.</noscript>
+  </main>
+</body>
+</html>
