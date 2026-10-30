@@ -106,6 +106,39 @@ def test_rejects_unordered_capture_timestamps(tmp_path: Path) -> None:
         extract_features(pcap, labels)
 
 
+def test_small_capture_reordering_keeps_file_order_with_zero_gap(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Multi-CPU receive paths stamp packets out of order by microseconds (real gateway: <300 us).
+
+    The switch stamps in arrival (file) order with its own monotonic clock, so a small step back
+    becomes a zero gap rather than a reordering or a rejected capture.
+    """
+    pcap, labels = _corpus(tmp_path)
+    from scapy.all import rdpcap
+
+    packets = list(rdpcap(str(pcap)))
+    packets[3].time = packets[2].time - Decimal("0.000300")
+    wrpcap(str(pcap), packets)
+    flows = extract_flows(pcap)
+    timestamps = [packet.timestamp_us for packet in next(iter(flows.values()))]
+    assert timestamps[3] == timestamps[2]
+    assert timestamps == sorted(timestamps)
+    assert "clamped 1 capture timestamp" in caplog.text
+    assert extract_features(pcap, labels)["checkpoint"].tolist() == [6, 16]
+
+
+def test_capture_reordering_beyond_tolerance_is_rejected(tmp_path: Path) -> None:
+    pcap, labels = _corpus(tmp_path)
+    from scapy.all import rdpcap
+
+    packets = list(rdpcap(str(pcap)))
+    packets[3].time = packets[2].time - Decimal("0.005")
+    wrpcap(str(pcap), packets)
+    with pytest.raises(PcapInputError, match="timestamp"):
+        extract_features(pcap, labels)
+
+
 def test_unknown_and_duplicate_ground_truth_rows_are_rejected(tmp_path: Path) -> None:
     pcap, labels = _corpus(tmp_path)
     text = labels.read_text()

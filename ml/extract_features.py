@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from ipaddress import IPv4Address
 from pathlib import Path
+from typing import Final
 
 import pandas as pd
 from scapy.all import IP, TCP, UDP, Ether, PcapReader
@@ -47,6 +48,9 @@ from common.feature_math import (
 from harness.capture import PcapInputError, validate_capture
 
 LOGGER = logging.getLogger(__name__)
+# Multi-CPU receive paths (WireGuard decrypts on every core) stamp packets up to ~300 us out of
+# order; anything larger means a corrupt or merged capture and is still rejected.
+MAX_CAPTURE_REORDER: Final = Decimal("0.001")
 
 
 @dataclass(frozen=True)
@@ -367,13 +371,25 @@ def _pcap_packets(path: Path) -> Iterator[Packet]:
     try:
         validate_capture(path)
         previous = Decimal(-1)
+        clamped, worst = 0, Decimal(0)
         with PcapReader(str(path)) as reader:
             for packet in reader:
                 timestamp = Decimal(str(packet.time))
-                if not timestamp.is_finite() or timestamp < previous:
+                if not timestamp.is_finite() or previous - timestamp > MAX_CAPTURE_REORDER:
                     raise PcapInputError("capture timestamps must be finite and nondecreasing")
-                previous = timestamp
+                if timestamp < previous:
+                    # §7.9: the switch stamps packets in arrival (file) order on a monotonic
+                    # clock, so a small step back is a zero gap, not a reordering.
+                    clamped, worst = clamped + 1, max(worst, previous - timestamp)
+                    packet.time = previous
+                previous = max(previous, timestamp)
                 yield packet
+        if clamped:
+            LOGGER.warning(
+                "clamped %d capture timestamps that stepped back by up to %d us",
+                clamped,
+                int(worst * 1_000_000),
+            )
     except (OSError, struct.error) as exc:
         raise PcapInputError(f"cannot parse pcap: {path}") from exc
 
