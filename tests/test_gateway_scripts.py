@@ -80,11 +80,12 @@ def test_vm_capture_start_sends_validated_session_to_vm(tmp_path: Path) -> None:
         tmp_path, "capture-start", "call-1", "shashank-phone", "HUMAN_INTERACTIVE", "video-call"
     )
     assert argv[argv.index("--command") + 1] == (
-        "bash -s -- call-1 shashank-phone HUMAN_INTERACTIVE video-call gw-lan-sw"
+        "bash -s -- call-1 shashank-phone HUMAN_INTERACTIVE video-call gw-lan-sw 0"
     )
     remote = (tmp_path / "gcloud.args.stdin").read_text()
     assert "/etc/aan-gateway/peers/$device.conf" in remote
-    assert 'python -m harness.capture start "results/corpus/$session"' in remote
+    assert '"${python[@]}" start "results/corpus/$session"' in remote
+    assert "systemd-run" in remote  # present but only runs when seconds > 0
 
 
 @pytest.mark.parametrize(
@@ -94,6 +95,9 @@ def test_vm_capture_start_sends_validated_session_to_vm(tmp_path: Path) -> None:
         ("../x", "shashank-phone", "AGENT_BULK", "crawl"),
         ("call-1", "shashank-phone", "AGENT_BULK", "a;b"),
         ("call-1", "", "AGENT_BULK", "crawl"),
+        ("call-1", "team-laptop", "AGENT_BULK", "crawl", "10"),
+        ("call-1", "team-laptop", "AGENT_BULK", "crawl", "5m"),
+        ("call-1", "team-laptop", "AGENT_BULK", "crawl", "9999"),
     ],
 )
 def test_vm_capture_start_rejects_unsafe_arguments(tmp_path: Path, args: tuple[str, ...]) -> None:
@@ -118,3 +122,13 @@ def test_vm_start_waits_until_ssh_answers(tmp_path: Path) -> None:
     # The fake succeeds at once, so the last recorded call is the SSH readiness probe.
     assert argv[:2] == ["compute", "ssh"]
     assert argv[-2:] == ["--command", "true"]
+
+
+def test_vm_timed_capture_lets_the_vm_close_the_window(tmp_path: Path) -> None:
+    argv = _run_vm_with_fake_gcloud(
+        tmp_path, "capture-start", "agent-1", "team-laptop", "AGENT_INTERACTIVE", "claude", "300"
+    )
+    assert argv[argv.index("--command") + 1].endswith("gw-lan-sw 300")
+    remote = (tmp_path / "gcloud.args.stdin").read_text()
+    assert '--unit "aan-capture-$session" --on-active="${seconds}s"' in remote
+    assert 'stop "results/corpus/$session"' in remote

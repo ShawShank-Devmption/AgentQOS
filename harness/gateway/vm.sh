@@ -24,10 +24,13 @@ usage: harness/gateway/vm.sh COMMAND
   add-device NAME            new WireGuard profile; QR + .conf saved under ~/.aan-gateway
   revoke-device NAME         remove a device's access
   tunnel                     forward VM localhost:8080 (dashboard) to http://localhost:8080
-  capture-start SESSION DEVICE LABEL ACTIVITY
+  capture-start SESSION DEVICE LABEL ACTIVITY [SECONDS]
                              full-packet capture of DEVICE's traffic; LABEL is HUMAN_INTERACTIVE,
-                             AGENT_INTERACTIVE or AGENT_BULK; start the activity only afterwards
-  capture-stop SESSION       stop it; writes results/corpus/SESSION/labels.csv on the VM
+                             AGENT_INTERACTIVE or AGENT_BULK; start the activity only afterwards.
+                             With SECONDS (30-3600) the VM stops the session itself: use it when
+                             the captured device is this Mac, so no vm.sh traffic is labelled
+  capture-stop SESSION       stop an untimed session; writes results/corpus/SESSION/labels.csv
+  capture-status SESSION     show session.json (after a timed session ends)
 EOF
 	exit 2
 }
@@ -55,14 +58,28 @@ training_label() {
 	echo "$1"
 }
 
+duration() {
+	[[ ${1:-} =~ ^[0-9]{2,4}$ ]] && [ "$1" -ge 30 ] && [ "$1" -le 3600 ] \
+		|| { echo "vm.sh: SECONDS must be 30-3600, got '${1:-}'" >&2; exit 2; }
+	echo "$1"
+}
+
+# A timed session needs no second connection from the Mac: the one SSH connection opens before
+# the window, so its packets are excluded as pre-existing TCP, and the VM closes the window.
 capture_start() {
-	ssh_vm --command "bash -s -- $1 $2 $3 $4 $AAN_LAN_SW" <<'REMOTE'
+	ssh_vm --command "bash -s -- $1 $2 $3 $4 $AAN_LAN_SW ${5:-0}" <<'REMOTE'
 set -euo pipefail
-session=$1 device=$2 label=$3 activity=$4 interface=$5
+session=$1 device=$2 label=$3 activity=$4 interface=$5 seconds=$6
 ip=$(sudo awk '/^AllowedIPs/ {sub("/32", "", $3); print $3}' "/etc/aan-gateway/peers/$device.conf")
 cd ~/cn_project
-sudo env PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -m harness.capture start "results/corpus/$session" \
+python=(sudo /usr/bin/env PYTHONDONTWRITEBYTECODE=1 "$HOME/cn_project/.venv/bin/python" -m harness.capture)
+"${python[@]}" start "results/corpus/$session" \
 	--interface "$interface" --device-ip "$ip" --label "$label" --framework "$activity"
+if [ "$seconds" -gt 0 ]; then
+	sudo systemd-run --quiet --unit "aan-capture-$session" --on-active="${seconds}s" \
+		--working-directory="$HOME/cn_project" "${python[@]:1}" stop "results/corpus/$session"
+	echo "session ends by itself in ${seconds}s; then: vm.sh capture-status $session"
+fi
 REMOTE
 }
 
@@ -165,7 +182,14 @@ capture-start)
 	device=$(device_name "${3:-}")
 	label=$(training_label "${4:-}")
 	activity=$(slug "${5:-}")
-	capture_start "$session" "$device" "$label" "$activity"
+	seconds=0
+	if [ $# -ge 6 ]; then seconds=$(duration "$6"); fi
+	capture_start "$session" "$device" "$label" "$activity" "$seconds"
+	;;
+capture-status)
+	session=$(slug "${2:-}")
+	ssh_vm --command "cat ~/cn_project/results/corpus/$session/session.json; \
+		systemctl list-timers --all --no-pager 'aan-capture-$session.timer' | sed -n 2p"
 	;;
 capture-stop)
 	session=$(slug "${2:-}")
