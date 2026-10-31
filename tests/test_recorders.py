@@ -1,4 +1,4 @@
-"""Recorder scripts (record_interactive.sh) driven end to end against fake gcloud/claude/macOS.
+"""Recorder scripts (record_interactive.sh, record_bulk.sh) run against fake gcloud/claude/macOS.
 
 The VM side (attached_capture.sh) is exercised on the VM itself; these tests pin the Mac-side
 order of operations: checks, quitting apps, opening the window, Claude, then the stop.
@@ -6,6 +6,7 @@ order of operations: checks, quitting apps, opening the window, Claude, then the
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -43,7 +44,8 @@ case "$*" in
 esac
 """,
     "claude": """#!/bin/sh
-echo "claude cwd=$PWD prompt=$1" >>"$AAN_FAKE_LOG"
+{ printf 'claude cwd=%s' "$PWD"; for arg in "$@"; do printf ' [%s]' "$arg"; done; echo; } \\
+	>>"$AAN_FAKE_LOG"
 """,
 }
 
@@ -61,12 +63,15 @@ def fake_env(tmp_path: Path) -> dict[str, str]:
         "AAN_FAKE_LOG": str(tmp_path / "calls.log"),
         "AAN_SESSIONS_DIR": str(tmp_path / "sessions"),
         "TERM_PROGRAM": "Apple_Terminal",
+        "AAN_PYTHON": sys.executable,
     }
 
 
-def _record(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+def _record(
+    env: dict[str, str], *args: str, script: str = "record_interactive.sh"
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["bash", str(GATEWAY / "record_interactive.sh"), *args],
+        ["bash", str(GATEWAY / script), *args],
         env=env,
         capture_output=True,
         text=True,
@@ -97,7 +102,7 @@ def test_interactive_session_runs_checks_quit_window_claude_stop_in_order(
     assert not any("com.wireguard.macos" in c and "quit" in c for c in calls)
     prompt = (tmp_path / "sessions" / "agent-03" / "prompt.txt").read_text().strip()
     assert prompt in (PROMPTS / "interactive.txt").read_text().splitlines()
-    assert f"prompt={prompt}" in next(c for c in calls if c.startswith("claude"))
+    assert f"[{prompt}]" in next(c for c in calls if c.startswith("claude"))
     assert '"status": "complete"' in result.stdout
 
 
@@ -133,3 +138,31 @@ def test_same_session_name_always_gets_the_same_prompt(
         for _ in range(3)
     }
     assert len(picks) == 1
+
+
+def test_bulk_session_runs_headless_claude_limited_to_the_crawler(
+    tmp_path: Path, fake_env: dict[str, str]
+) -> None:
+    result = _record(fake_env, "bulk-01", script="record_bulk.sh")
+    assert result.returncode == 0, result.stderr
+    calls = (tmp_path / "calls.log").read_text().splitlines()
+    assert any(
+        "attached_capture.sh bulk-01 team-laptop AGENT_BULK claude-code-crawler" in c for c in calls
+    )
+    claude = next(c for c in calls if c.startswith("claude"))
+    crawler = GATEWAY.parent / "agents" / "crawler.py"
+    assert "[-p]" in claude
+    assert f"[Bash({sys.executable} {crawler}:*)] [Read] [Write]" in claude
+    prompt = (tmp_path / "sessions" / "bulk-01" / "prompt.txt").read_text()
+    assert "@CRAWLER@" not in prompt
+    assert f"`{sys.executable} {crawler} --seed URL" in prompt
+    assert calls[-1] == "remote-got:stop"
+    assert '"status": "complete"' in result.stdout
+
+
+def test_bulk_requires_the_repository_python(tmp_path: Path, fake_env: dict[str, str]) -> None:
+    env = {**fake_env, "AAN_PYTHON": str(tmp_path / "missing-python")}
+    result = _record(env, "bulk-01", script="record_bulk.sh")
+    assert result.returncode == 1
+    assert "virtual environment" in result.stderr
+    assert not (tmp_path / "calls.log").exists()

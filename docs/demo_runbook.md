@@ -123,6 +123,23 @@ If the connection drops, the VM ends the window at that moment; it ends by itsel
 The first run asks to let Terminal control System Events (needed to quit apps): allow it.
 Background services are not apps: pause macOS update downloads and iCloud sync beforehand.
 
+### Recording a crawler session (AGENT_BULK), one command
+
+Same preconditions as the interactive recorder (Terminal.app, WireGuard on, VM running):
+
+```sh
+harness/gateway/record_bulk.sh bulk-01
+```
+
+Same checks, app quitting and capture window; then Claude Code runs **headless** (`claude -p`)
+with a task from `harness/agents/prompts/bulk.txt`: two crawl runs of up to 8 concurrent crawlers
+and 400 pages each, seeds and crawler counts partly chosen by Claude. Claude may only run
+`harness/agents/crawler.py` (and read/write its session folder). The crawler, not Claude, enforces
+politeness: only en.wikipedia.org, docs.python.org and www.rfc-editor.org; robots.txt and
+Crawl-delay obeyed; at most 1 request/s per site across all crawler processes; identifying
+User-Agent; at most 9 minutes and 2000 pages per run; page bodies are not stored. The recording
+ends when Claude finishes (about 20 minutes). Expect on the order of 100 MB per run through the VM.
+
 ### Labelled corpus sessions (real traffic, ground truth from orchestration)
 
 One session = one device doing one kind of activity. Everything the device sends during the
