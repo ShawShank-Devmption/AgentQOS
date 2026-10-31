@@ -104,6 +104,25 @@ gcloud compute instances add-iam-policy-binding agent-qos-p4dev --zone=asia-sout
 project sits in an organization; a domain-restriction policy may reject outside accounts, in which
 case grant the teammate's organization account instead.
 
+### Recording a Claude Code session (AGENT_INTERACTIVE), one command
+
+From **Terminal.app** on the Mac, with WireGuard (`team-laptop`) on and the VM running:
+
+```sh
+cd ~/Projects/cn_project
+harness/gateway/record_interactive.sh agent-03
+```
+
+It checks the VM and that this Mac's traffic leaves via the gateway, quits every other app
+(Terminal, Finder and WireGuard stay; apps with unsaved work ask first), opens the capture over one
+SSH connection made before recording starts, and launches Claude Code in
+`~/aan-agent-sessions/SESSION/` with a task from `harness/agents/prompts/interactive.txt` (the same
+session name always gets the same task). Drive Claude as long as you like; **exiting Claude
+(`/exit` or Ctrl-D) ends the recording** and prints the result. Ctrl-C to interrupt Claude is safe.
+If the connection drops, the VM ends the window at that moment; it ends by itself after 60 minutes.
+The first run asks to let Terminal control System Events (needed to quit apps): allow it.
+Background services are not apps: pause macOS update downloads and iCloud sync beforehand.
+
 ### Labelled corpus sessions (real traffic, ground truth from orchestration)
 
 One session = one device doing one kind of activity. Everything the device sends during the
