@@ -103,6 +103,42 @@ def test_explicit_groups_never_cross_held_out_or_cv_and_are_seeded() -> None:
         assert not fit_groups & set(FRAME.iloc[score_rows]["flow_id"].map(groups))
 
 
+def _few_sessions_per_class(per_class: int) -> dict[str, str]:
+    """Group each class's flows into `per_class` single-label sessions, like the real corpus."""
+    groups = {}
+    for flow_id in FRAME["flow_id"].unique():
+        label, index = flow_id.rsplit("-", 1)
+        groups[flow_id] = f"{label}-s{int(index) % per_class}"
+    return groups
+
+
+def test_held_out_takes_whole_sessions_from_every_class() -> None:
+    """With few sessions per class a plain 20 % group split can leave a class untested."""
+    groups = _few_sessions_per_class(4)
+    for seed in range(20):
+        fit, held = split_held_out(FRAME, seed=seed, groups=groups)
+        held_sessions = set(held["flow_id"].map(groups))
+        assert not set(fit["flow_id"].map(groups)) & held_sessions
+        per_class = held.groupby("label")["flow_id"].apply(lambda f: f.map(groups).nunique())
+        assert per_class.to_dict() == {1: 1, 2: 1, 3: 1}
+
+
+def test_class_with_a_single_session_is_trained_on_not_held_out() -> None:
+    groups = _few_sessions_per_class(4)
+    for flow_id in groups:
+        if flow_id.startswith("agent_bulk"):
+            groups[flow_id] = "agent_bulk-only"
+    fit, held = split_held_out(FRAME, seed=1, groups=groups)
+    assert int(TrafficClass.AGENT_BULK) not in set(held["label"])
+    assert int(TrafficClass.AGENT_BULK) in set(fit["label"])
+
+
+def test_held_out_rejects_a_group_with_mixed_labels() -> None:
+    groups = {flow_id: f"s{i % 7}" for i, flow_id in enumerate(FRAME["flow_id"].unique())}
+    with pytest.raises(FeatureFrameError, match="single label"):
+        split_held_out(FRAME, seed=1, groups=groups)
+
+
 @pytest.mark.parametrize("kind", ["missing", "extra", "empty", "null"])
 def test_explicit_group_mapping_must_be_complete_and_unambiguous(kind: str) -> None:
     groups = _session_groups()

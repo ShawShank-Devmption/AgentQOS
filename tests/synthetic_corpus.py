@@ -13,7 +13,9 @@ _PROFILES = {
         "iat_ewma_us": (40_000, 40_000_000),  # reaches past 2**24: exercises float32 rounding
         "iat_var_ewma": (20_000, 20_000_000),
         "fanout_new_flows": (1, 4),
-        "tls_ext_count": (12, 17),
+        # Overlaps the agents' range, as real browsers and agent stacks do: timing, not TLS, is
+        # then the strict best human split, so trees satisfy 7.14 by fit, not by tie-break luck.
+        "tls_ext_count": (8, 17),
     },
     TrafficClass.AGENT_INTERACTIVE: {
         "iat_ewma_us": (800, 8_000),

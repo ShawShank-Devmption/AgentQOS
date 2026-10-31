@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.metrics import confusion_matrix, f1_score
-from sklearn.model_selection import GroupShuffleSplit, StratifiedGroupKFold
+from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.tree import DecisionTreeClassifier
 
 from common.contracts import (
@@ -92,13 +92,33 @@ def validate_feature_frame(frame: pd.DataFrame) -> None:
 def split_held_out(
     frame: pd.DataFrame, seed: int, groups: Mapping[str, str] | None = None
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Hold out groups of flows, using flow IDs unless an explicit complete mapping is supplied."""
+    """Hold out whole groups from every class, using flow IDs unless explicit groups are given.
+
+    Each class gives HELD_OUT_FRACTION of its groups, at least one when it has two or more, so
+    every class is measured on groups never trained on even when there are only a few sessions.
+    A class with a single group stays in training (it cannot be both learned and tested).
+
+    Raises:
+        FeatureFrameError: If a group mixes labels or no class has two groups.
+    """
     row_groups = _row_groups(frame, groups)
-    if row_groups.nunique() < 2:
-        raise FeatureFrameError("held-out splitting requires at least two independent groups")
-    splitter = GroupShuffleSplit(n_splits=1, test_size=HELD_OUT_FRACTION, random_state=seed)
-    train_rows, held_rows = next(splitter.split(frame, groups=row_groups))
-    return frame.iloc[train_rows], frame.iloc[held_rows]
+    group_labels = frame.groupby(row_groups.to_numpy())["label"].unique()
+    if (group_labels.map(len) > 1).any():
+        raise FeatureFrameError("each group must carry a single label to stratify held-out data")
+    by_label: dict[int, list[str]] = {}
+    for group, labels in group_labels.items():
+        by_label.setdefault(int(labels[0]), []).append(str(group))
+    rng = np.random.default_rng(seed)
+    held: set[str] = set()
+    for label in sorted(by_label):
+        members = sorted(by_label[label])
+        if len(members) >= 2:
+            count = max(1, round(HELD_OUT_FRACTION * len(members)))
+            held.update(str(group) for group in rng.choice(members, size=count, replace=False))
+    if not held:
+        raise FeatureFrameError("held-out splitting requires two independent groups in a class")
+    held_rows = row_groups.astype(str).isin(held).to_numpy()
+    return frame[~held_rows], frame[held_rows]
 
 
 def cross_validation_folds(
@@ -124,6 +144,13 @@ def check_path_coverage(model: DecisionTreeClassifier) -> None:
     Raises:
         PathCoverageError: Naming the uncovered leaves.
     """
+    uncovered = uncovered_leaves(model)
+    if uncovered:
+        raise PathCoverageError(f"7.14: leaves {sorted(uncovered)} lack a timing/burst split")
+
+
+def uncovered_leaves(model: DecisionTreeClassifier) -> list[int]:
+    """Leaves whose root-to-leaf path has no timing/burst split (7.14)."""
     tree = model.tree_
     uncovered = []
     pending = [(0, False)]
@@ -135,8 +162,30 @@ def check_path_coverage(model: DecisionTreeClassifier) -> None:
             continue
         covered = covered or int(tree.feature[node]) in _TIMING_BURST_INDICES
         pending += [(tree.children_left[node], covered), (tree.children_right[node], covered)]
-    if uncovered:
-        raise PathCoverageError(f"7.14: leaves {sorted(uncovered)} lack a timing/burst split")
+    return uncovered
+
+
+def cross_validated_macro_f1(
+    train_part: pd.DataFrame, seed: int, groups: Mapping[str, str] | None = None
+) -> list[float]:
+    """Macro-F1 of a fresh tree on each grouped, stratified CV fold of the training part."""
+    features = train_part[list(FEATURE_ORDER)].to_numpy()
+    labels = train_part["label"].to_numpy()
+    scores = []
+    for fit_rows, score_rows in cross_validation_folds(train_part, seed, groups=groups):
+        fold_model = new_tree(seed).fit(features[fit_rows], labels[fit_rows])
+        scores.append(
+            float(
+                f1_score(
+                    labels[score_rows],
+                    fold_model.predict(features[score_rows]),
+                    labels=list(TRAINING_LABELS),
+                    average="macro",
+                    zero_division=0,
+                )
+            )
+        )
+    return scores
 
 
 def train(frame: pd.DataFrame, seed: int, groups: Mapping[str, str] | None = None) -> TrainResult:
@@ -152,26 +201,12 @@ def train(frame: pd.DataFrame, seed: int, groups: Mapping[str, str] | None = Non
     train_groups = (
         None if groups is None else {flow_id: groups[flow_id] for flow_id in train_part["flow_id"]}
     )
-    features = train_part[list(FEATURE_ORDER)].to_numpy()
-    labels = train_part["label"].to_numpy()
-    fold_scores = []
-    for fit_rows, score_rows in cross_validation_folds(train_part, seed, groups=train_groups):
-        fold_model = _new_tree(seed).fit(features[fit_rows], labels[fit_rows])
-        predicted = fold_model.predict(features[score_rows])
-        fold_scores.append(
-            float(
-                f1_score(
-                    labels[score_rows],
-                    predicted,
-                    labels=list(TRAINING_LABELS),
-                    average="macro",
-                    zero_division=0,
-                )
-            )
-        )
-    model = _new_tree(seed).fit(features, labels)
+    fold_scores = cross_validated_macro_f1(train_part, seed, groups=train_groups)
+    model = new_tree(seed).fit(
+        train_part[list(FEATURE_ORDER)].to_numpy(), train_part["label"].to_numpy()
+    )
     check_path_coverage(model)
-    held_reports = _checkpoint_reports(model, held_out)
+    held_reports = checkpoint_reports(model, held_out)
     report = {
         "seed": seed,
         "model_hash": model_hash(model),
@@ -190,7 +225,7 @@ def train(frame: pd.DataFrame, seed: int, groups: Mapping[str, str] | None = Non
             key: value["confusion_matrix"] for key, value in held_reports.items()
         },
         "held_out_by_source": {
-            source: _checkpoint_reports(model, held_out[held_out["source_framework"] == source])
+            source: checkpoint_reports(model, held_out[held_out["source_framework"] == source])
             for source in sorted(frame["source_framework"].unique())
         },
         "grouping": {
@@ -201,6 +236,9 @@ def train(frame: pd.DataFrame, seed: int, groups: Mapping[str, str] | None = Non
             "held_out_group_count": int(held_out["flow_id"].map(groups).nunique())
             if groups is not None
             else int(held_out["flow_id"].nunique()),
+            "held_out_groups": sorted(set(held_out["flow_id"].map(groups)))
+            if groups is not None
+            else None,
             "mapping_sha256": _group_mapping_hash(frame, groups),
         },
     }
@@ -223,7 +261,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     try:
-        groups = None if args.groups is None else _load_groups(args.groups)
+        groups = None if args.groups is None else load_groups(args.groups)
         result = train(pd.read_csv(args.features), args.seed, groups=groups)
     except (OSError, ValueError) as exc:
         LOGGER.error("training failed: %s", exc)
@@ -243,7 +281,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _new_tree(seed: int) -> DecisionTreeClassifier:
+def new_tree(seed: int) -> DecisionTreeClassifier:
+    """The deployed tree configuration (depth <= TREE_MAX_DEPTH, class-balanced)."""
     return DecisionTreeClassifier(
         max_depth=TREE_MAX_DEPTH, class_weight="balanced", random_state=seed
     )
@@ -267,7 +306,8 @@ def _row_groups(frame: pd.DataFrame, groups: Mapping[str, str] | None) -> pd.Ser
     return frame["flow_id"].map(groups)
 
 
-def _load_groups(path: Path) -> dict[str, str]:
+def load_groups(path: Path) -> dict[str, str]:
+    """Read a flow_id,group_id CSV sidecar into a complete flow-to-group mapping."""
     frame = pd.read_csv(path, dtype=str, keep_default_na=False)
     if list(frame.columns) != ["flow_id", "group_id"]:
         raise FeatureFrameError("group sidecar columns must be flow_id,group_id")
@@ -284,7 +324,8 @@ def _group_mapping_hash(frame: pd.DataFrame, groups: Mapping[str, str] | None) -
     return hashlib.sha256(json.dumps(pairs, ensure_ascii=True).encode()).hexdigest()
 
 
-def _checkpoint_reports(model: DecisionTreeClassifier, held_out: pd.DataFrame) -> dict:
+def checkpoint_reports(model: DecisionTreeClassifier, held_out: pd.DataFrame) -> dict:
+    """Per-checkpoint confusion matrix and per-class precision/recall on held-out rows."""
     return {
         str(checkpoint): _performance_report(model, held_out[held_out["checkpoint"] == checkpoint])
         for checkpoint in FEATURE_CHECKPOINTS
