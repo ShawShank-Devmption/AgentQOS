@@ -1,0 +1,135 @@
+"""Recorder scripts (record_interactive.sh) driven end to end against fake gcloud/claude/macOS.
+
+The VM side (attached_capture.sh) is exercised on the VM itself; these tests pin the Mac-side
+order of operations: checks, quitting apps, opening the window, Claude, then the stop.
+"""
+
+import os
+import subprocess
+from pathlib import Path
+
+import pytest
+
+GATEWAY = Path(__file__).resolve().parents[1] / "harness" / "gateway"
+PROMPTS = Path(__file__).resolve().parents[1] / "harness" / "agents" / "prompts"
+VM_IP = "203.0.113.7"
+
+FAKES = {
+    "gcloud": f"""#!/bin/sh
+echo "gcloud $*" >>"$AAN_FAKE_LOG"
+case "$*" in
+*"instances describe"*) printf 'RUNNING\\t{VM_IP}\\n' ;;
+*attached_capture.sh*)
+	echo AAN_READY
+	read -r line
+	echo "remote-got:$line" >>"$AAN_FAKE_LOG"
+	printf '{{\\n  "status": "complete"\\n}}\\n'
+	;;
+esac
+""",
+    "curl": f"""#!/bin/sh
+printf 'fl=1\\nip=%s\\n' "${{AAN_FAKE_EGRESS:-{VM_IP}}}"
+""",
+    "osascript": """#!/bin/sh
+case "$*" in
+*"to quit"*)
+	echo "osascript $*" >>"$AAN_FAKE_LOG"
+	touch "$AAN_FAKE_LOG.quit"
+	;;
+*)
+	if [ -e "$AAN_FAKE_LOG.quit" ]; then echo "com.apple.Terminal"
+	else echo "com.apple.Terminal, com.microsoft.VSCode, com.wireguard.macos"; fi
+	;;
+esac
+""",
+    "claude": """#!/bin/sh
+echo "claude cwd=$PWD prompt=$1" >>"$AAN_FAKE_LOG"
+""",
+}
+
+
+@pytest.fixture
+def fake_env(tmp_path: Path) -> dict[str, str]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for name, body in FAKES.items():
+        (bin_dir / name).write_text(body)
+        (bin_dir / name).chmod(0o755)
+    return {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "AAN_FAKE_LOG": str(tmp_path / "calls.log"),
+        "AAN_SESSIONS_DIR": str(tmp_path / "sessions"),
+        "TERM_PROGRAM": "Apple_Terminal",
+    }
+
+
+def _record(env: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(GATEWAY / "record_interactive.sh"), *args],
+        env=env,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        timeout=60,
+        check=False,
+    )
+
+
+def test_interactive_session_runs_checks_quit_window_claude_stop_in_order(
+    tmp_path: Path, fake_env: dict[str, str]
+) -> None:
+    result = _record(fake_env, "agent-03")
+    assert result.returncode == 0, result.stderr
+    calls = (tmp_path / "calls.log").read_text().splitlines()
+    order = [
+        next(i for i, c in enumerate(calls) if marker in c)
+        for marker in (
+            "instances describe",
+            "test ! -e ~/aan-results/corpus/agent-03",
+            "com.microsoft.VSCode",
+            "attached_capture.sh agent-03 team-laptop AGENT_INTERACTIVE claude-code-interactive",
+            "claude cwd=",
+            "remote-got:stop",
+        )
+    ]
+    assert order == sorted(order)
+    assert not any("com.wireguard.macos" in c and "quit" in c for c in calls)
+    prompt = (tmp_path / "sessions" / "agent-03" / "prompt.txt").read_text().strip()
+    assert prompt in (PROMPTS / "interactive.txt").read_text().splitlines()
+    assert f"prompt={prompt}" in next(c for c in calls if c.startswith("claude"))
+    assert '"status": "complete"' in result.stdout
+
+
+def test_refuses_to_run_outside_terminal_app(tmp_path: Path, fake_env: dict[str, str]) -> None:
+    result = _record({**fake_env, "TERM_PROGRAM": "vscode"}, "agent-03")
+    assert result.returncode == 1
+    assert "Terminal.app" in result.stderr
+    assert not (tmp_path / "calls.log").exists()
+
+
+def test_refuses_when_traffic_bypasses_the_gateway(
+    tmp_path: Path, fake_env: dict[str, str]
+) -> None:
+    result = _record({**fake_env, "AAN_FAKE_EGRESS": "198.51.100.9"}, "agent-03")
+    assert result.returncode == 1
+    assert "turn WireGuard on" in result.stderr
+    assert "attached_capture" not in (tmp_path / "calls.log").read_text()
+
+
+@pytest.mark.parametrize("args", [(), ("../x",), ("a", "b")])
+def test_rejects_bad_arguments(fake_env: dict[str, str], args: tuple[str, ...]) -> None:
+    assert _record(fake_env, *args).returncode == 2
+
+
+def test_same_session_name_always_gets_the_same_prompt(
+    tmp_path: Path, fake_env: dict[str, str]
+) -> None:
+    script = f'. "{GATEWAY}/record_lib.sh"; pick_prompt interactive agent-03'
+    picks = {
+        subprocess.run(
+            ["bash", "-c", script], env=fake_env, capture_output=True, text=True, check=True
+        ).stdout
+        for _ in range(3)
+    }
+    assert len(picks) == 1
