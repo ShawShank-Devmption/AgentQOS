@@ -132,13 +132,14 @@ harness/gateway/record_bulk.sh bulk-01
 ```
 
 Same checks, app quitting and capture window; then Claude Code runs **headless** (`claude -p`)
-with a task from `harness/agents/prompts/bulk.txt`: two crawl runs of up to 8 concurrent crawlers
-and 400 pages each, seeds and crawler counts partly chosen by Claude. Claude may only run
-`harness/agents/crawler.py` (and read/write its session folder). The crawler, not Claude, enforces
-politeness: only en.wikipedia.org, docs.python.org and www.rfc-editor.org; robots.txt and
-Crawl-delay obeyed; at most 1 request/s per site across all crawler processes; identifying
-User-Agent; at most 9 minutes and 2000 pages per run; page bodies are not stored. The recording
-ends when Claude finishes (about 20 minutes). Expect on the order of 100 MB per run through the VM.
+and launches one burst: 6–12 small crawlers started at the same moment, each from a random start
+page (`--random-seed`, chosen by Claude and logged) on a different public site, 15–25 pages each.
+The whole session takes about a minute. Claude may only run `harness/agents/crawler.py` (and
+read/write its session folder). The crawler, not Claude, enforces politeness: only the sites in
+`SEED_URLS` (Wikipedia in five languages, Wiktionary, Wikibooks, docs.python.org,
+rfc-editor.org); robots.txt and Crawl-delay obeyed; at most 1 request/s per site across all crawler
+processes; identifying User-Agent; at most 50 pages per crawler and 3 minutes; page bodies not
+stored.
 
 ### Labelled corpus sessions (real traffic, ground truth from orchestration)
 

@@ -155,7 +155,7 @@ def test_bulk_session_runs_headless_claude_limited_to_the_crawler(
     assert f"[Bash({sys.executable} {crawler}:*)] [Read] [Write]" in claude
     prompt = (tmp_path / "sessions" / "bulk-01" / "prompt.txt").read_text()
     assert "@CRAWLER@" not in prompt
-    assert f"`{sys.executable} {crawler} --seed URL" in prompt
+    assert f"`{sys.executable} {crawler} --crawlers " in prompt
     assert calls[-1] == "remote-got:stop"
     assert '"status": "complete"' in result.stdout
 

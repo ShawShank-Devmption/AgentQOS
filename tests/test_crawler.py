@@ -1,12 +1,14 @@
-"""Politeness guarantees of the AGENT_BULK crawler, against a real local HTTP server."""
+"""Politeness guarantees of the AGENT_BULK crawler burst, against a real local HTTP server."""
 
 import io
 import json
+import random
 import threading
 import time
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -129,20 +131,44 @@ def test_links_are_same_site_without_fragments_or_queries() -> None:
     ]
 
 
+def test_seeds_are_random_but_reproducible_and_spread_over_sites() -> None:
+    first = crawler.pick_seeds(8, random.Random(7))
+    assert first == crawler.pick_seeds(8, random.Random(7))
+    assert first != crawler.pick_seeds(8, random.Random(8))
+    assert len({urlsplit(url).netloc for url in first}) == 8  # 8 crawlers, 8 different sites
+    assert set(first) <= set(crawler.SEED_URLS)
+    assert len(crawler.pick_seeds(99, random.Random(1))) == len(crawler.SEED_URLS)
+
+
+def test_burst_starts_every_crawler_with_its_own_page_budget(tmp_path: Path, site: str) -> None:
+    log = io.StringIO()
+    starts, report = crawler.burst(
+        2,
+        pages_each=2,
+        rng=random.Random(3),
+        log=log,
+        limiter=HostRateLimiter(tmp_path / "rate", 0.01),
+        seeds=[f"http://{site}/a", f"http://{site}/b"],
+        allowed_hosts=frozenset({site}),
+    )
+    records = [json.loads(line) for line in log.getvalue().splitlines()]
+    assert sorted(starts) == [f"http://{site}/a", f"http://{site}/b"]
+    assert sum(report.pages.values()) == len(records) == 4
+    assert {f"http://{site}/a", f"http://{site}/b"} <= {r["url"] for r in records}
+
+
 @pytest.mark.parametrize(
     "args",
     [
-        ["--seed", "https://example.com/", "--out", "x.jsonl"],
-        ["--seed", "https://en.wikipedia.org/wiki/X", "--crawlers", "9", "--out", "x.jsonl"],
-        ["--seed", "https://en.wikipedia.org/wiki/X", "--max-minutes", "10", "--out", "x.jsonl"],
+        ["--crawlers", "17", "--random-seed", "1", "--out", "x.jsonl"],
+        ["--pages-each", "51", "--random-seed", "1", "--out", "x.jsonl"],
+        ["--crawlers", "4", "--out", "x.jsonl"],
     ],
 )
 def test_cli_rejects_out_of_policy_arguments(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, args: list[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    try:
-        code = crawler.main(args)
-    except SystemExit as exc:
-        code = exc.code
-    assert code == 2
+    with pytest.raises(SystemExit) as exit_info:
+        crawler.main(args)
+    assert exit_info.value.code == 2

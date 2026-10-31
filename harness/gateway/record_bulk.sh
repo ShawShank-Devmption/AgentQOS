@@ -3,8 +3,9 @@
 # usage (from Terminal.app, WireGuard on): harness/gateway/record_bulk.sh SESSION
 #
 # Same checks, app quitting and capture window as record_interactive.sh. Claude runs without a
-# person (claude -p) and may only run harness/agents/crawler.py, which enforces robots.txt, per-site
-# rate limits and caps; the window closes when Claude finishes (at most ~20 min, 60 min VM cap).
+# person (claude -p) and may only run harness/agents/crawler.py: one burst of small crawlers started
+# together from random public pages, with robots.txt, per-site rate limits and caps enforced by the
+# crawler. The window closes when Claude finishes (about a minute; 60 min VM cap).
 set -euo pipefail
 . "$(dirname "$0")/record_lib.sh"
 
@@ -30,7 +31,7 @@ start_window "$session" AGENT_BULK claude-code-crawler
 trap 'exec 3>&-' EXIT # if this script dies, the closed control channel still ends the window
 cat <<EOF
 
-=== Recording $session (AGENT_BULK). Headless Claude is crawling; this takes up to ~20 minutes.
+=== Recording $session (AGENT_BULK). Headless Claude starts a crawler burst; about a minute.
 === Don't use the Mac meanwhile. Its task is in $workdir/prompt.txt.
 
 EOF
