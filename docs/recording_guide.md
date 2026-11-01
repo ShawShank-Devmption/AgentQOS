@@ -71,8 +71,13 @@ retrains. **You** record sessions and send him the list.
 - [ ] WireGuard on with **your** profile for this device. No other VPN. On the Mac and iPhone,
       iCloud Private Relay off for the session.
 - [ ] The device is otherwise idle: quit every app you do not need (the agent recorders quit
-      them for you on the Mac). Pause cloud sync (iCloud Drive, Google Drive, Dropbox, OneDrive),
-      backups (Time Machine; Google Photos/WhatsApp backup on the phone) and app/system updates.
+      them for you on the Mac). Menu-bar apps keep running after that: quit Docker Desktop,
+      WhatsApp, Slack/Teams and similar from their menu-bar icon, and turn off Chrome's
+      *Continue running background apps*; close calendar/mail tabs. Pause cloud sync (iCloud
+      Drive, Google Drive, Dropbox, OneDrive), backups (Time Machine; Google Photos/WhatsApp
+      backup on the phone) and app/system updates. Known background services (iCloud, Apple,
+      Docker, WhatsApp, Google Calendar, time sync) are removed from training afterwards, but
+      anything else your device sends stays labelled as the session's activity.
 - [ ] Stable network. Do not switch Wi-Fi or hotspot during the session; with the phone, stay put.
       The capture measures timing as packets reach the VM, so your connection's jitter is part
       of the data.

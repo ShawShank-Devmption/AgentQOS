@@ -194,8 +194,11 @@ harness/gateway/vm.sh capture-stop call-01        # prints session.json; status 
   the count is `excluded_midstream_tcp_flows` in `session.json`. UDP/QUIC flows cannot be told
   apart this way, so start the activity after `capture-start` returns and avoid long-lived apps.
 - A session with kernel packet drops is marked `failed` and gets no labels; repeat it.
-- Features for training: on the VM,
-  `.venv/bin/python -m ml.extract_features results/corpus/S/capture.pcap results/corpus/S/labels.csv --output results/corpus/S/features.csv`.
+- Features for training (Shashank): build the whole corpus on the VM into a new directory,
+  leaving known background services (`eval/configs/corpus_noise.json`) out of the training rows:
+  `.venv/bin/python -m ml.build_corpus results/corpus --rules eval/configs/corpus_noise.json --output results/corpus-build-DATE`.
+  It writes `features.csv` and `groups.csv` for `ml.train --features … --groups …`, `noise.csv`
+  (every dropped flow and why) and `summary.json`; sessions themselves are never modified.
 
 ## 2. Demo sequence
 

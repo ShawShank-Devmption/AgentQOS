@@ -393,3 +393,22 @@ plus `eval.workload --profile PATH` so a cell picks the profile on the `--execut
 ported. Host: pytest and lint green. Not yet run on the VM: `make build` for the merged P4,
 PTF suites, a D2 cell through BMv2.
 
+## 2026-11-02 — Background noise removed from the corpus build (P3.6/P3.8)
+
+Jobin's first Codex sessions showed ~20–26 % of labelled flows were Mac background services
+(iCloud, Docker Desktop, WhatsApp, Google Calendar, NTP). `ml.build_corpus` now builds the
+training set from the sessions without them (rules: `eval/configs/corpus_noise.json`); sessions are
+not modified and dropped flows still feed slot ownership and fanout. Build
+`results/corpus-build-2026-11-02` on the VM (17 complete sessions; `jobin-codex-agent-04` was still
+recording): 103 flows dropped (WhatsApp chat 31, NTP 31, Apple 16, WhatsApp 11, Docker 6, iCloud 5,
+Apple push 2); 2,648 kept. 12 min on the VM.
+
+Residual check with tshark (diagnostic only): 81 kept flows (3.1 %) still go to background
+services, all over QUIC (iCloud 37, Google Calendar 36, Apple 9, WhatsApp 1). Every TCP one was
+caught. QUIC names need decrypting the Initial packet (RFC 9001 §5: AES-128-GCM and header
+protection), which needs a crypto library, and Jobin's Mac sends DNS over HTTPS (1.1.1.1 UDP 443)
+so DNS gives no names either.
+
+DESIGN GAP: QUIC SNI for noise removal needs `cryptography` (not in the dependency baseline;
+present on the VM only incidentally) or tshark — team sign-off before adding either.
+
