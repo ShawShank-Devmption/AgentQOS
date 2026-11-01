@@ -23,7 +23,8 @@ FAKES = {
 echo "gcloud $*" >>"$AAN_FAKE_LOG"
 case "$*" in
 *"instances describe"*) printf 'RUNNING\\t{VM_IP}\\n' ;;
-*"AllowedIPs = {TUNNEL_IP}/32"*) echo ananya-mac ;;
+*"sudo grep -rlx --include='*.conf' 'AllowedIPs = {TUNNEL_IP}/32' /etc/aan-gateway/peers)"*)
+	echo ananya-mac ;;
 *AllowedIPs*) echo "no device has that address" >&2; exit 1 ;;
 *attached_capture.sh*)
 	echo AAN_READY
@@ -165,6 +166,9 @@ def test_refuses_when_no_device_profile_owns_the_tunnel_address(
     assert result.returncode == 1
     calls = (tmp_path / "calls.log").read_text()
     assert "AllowedIPs = 10.42.0.99/32" in calls
+    # /etc/aan-gateway is root-only: a shell glob there expands as the unprivileged user and
+    # matches nothing, so the lookup must let sudo grep read the directory itself.
+    assert "peers/*" not in calls
     assert "attached_capture" not in calls
 
 

@@ -82,7 +82,10 @@ preflight() {
 	[ -n "$tunnel" ] || die "no WireGuard address in $AAN_CLIENT_NET on this Mac"
 	remote="test ! -e ~/aan-results/corpus/$session"
 	remote+=" || { echo \"session '$session' already exists on the VM\" >&2; exit 1; }"
-	remote+="; peer=\$(sudo grep -lx 'AllowedIPs = $tunnel/32' $AAN_STATE_DIR/peers/*.conf)"
+	# The peers directory is root-only: grep must list it itself (a shell glob would expand as this
+	# unprivileged user, match nothing and report that no profile exists).
+	remote+="; peer=\$(sudo grep -rlx --include='*.conf' 'AllowedIPs = $tunnel/32'"
+	remote+=" $AAN_STATE_DIR/peers)"
 	remote+=" || { echo 'no device profile has address $tunnel' >&2; exit 1; }"
 	remote+="; basename \"\$peer\" .conf"
 	DEVICE=$(ssh_vm --command "$remote" </dev/null) || die "VM check failed (see above)"
