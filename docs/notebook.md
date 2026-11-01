@@ -412,3 +412,9 @@ so DNS gives no names either.
 DESIGN GAP: QUIC SNI for noise removal needs `cryptography` (not in the dependency baseline;
 present on the VM only incidentally) or tshark — team sign-off before adding either.
 
+
+Codex recordings now start with `--disable remote_plugin --disable plugins --disable apps`: every
+Jobin Codex session began with a ~44–53 MB plugin-catalog download from chatgpt.com (the same host
+as its model traffic, so the corpus filter cannot separate it). Flags verified with
+`codex features list` (all three false; misspelt names are rejected) and a sandboxed crawl still
+fetches pages; whether the download is gone is checked on the next captured session.

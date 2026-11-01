@@ -11,6 +11,9 @@ SESSIONS_DIR=${AAN_SESSIONS_DIR:-$HOME/aan-agent-sessions}
 # skills and AGENTS.md add their own traffic and differ between teammates. One-time login:
 # CODEX_HOME=~/.aan-codex codex login
 CODEX_RECORD_HOME=${AAN_CODEX_HOME:-$HOME/.aan-codex}
+# Plugins and ChatGPT apps off: Codex otherwise downloads a ~50 MB plugin catalog at start-up,
+# inside the capture window, from the same host as its model traffic (so it cannot be filtered).
+CODEX_RECORD_FLAGS=(--disable remote_plugin --disable plugins --disable apps)
 AGENT=claude
 # Never quit: the terminal running the recorder, Finder, and the WireGuard app that owns the tunnel.
 KEEP_APPS=(com.apple.Terminal com.apple.finder com.wireguard.macos)

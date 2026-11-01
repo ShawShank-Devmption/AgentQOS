@@ -15,6 +15,8 @@ GATEWAY = Path(__file__).resolve().parents[1] / "harness" / "gateway"
 PROMPTS = Path(__file__).resolve().parents[1] / "harness" / "agents" / "prompts"
 VM_IP = "203.0.113.7"
 TUNNEL_IP = "10.42.0.12"
+# Codex otherwise downloads a ~50 MB plugin catalog at start-up, inside the capture window.
+PLUGINS_OFF = "[--disable] [remote_plugin] [--disable] [plugins] [--disable] [apps]"
 
 FAKES = {
     "gcloud": f"""#!/bin/sh
@@ -230,6 +232,7 @@ def test_interactive_codex_session_uses_the_recording_home_without_the_daemon(
     assert f"cwd={tmp_path / 'sessions' / 'agent-07'} home={tmp_path / 'codex-home'}" in codex
     # A shared background server would hold model connections opened before the window.
     assert "[--no-daemon] [--search] [-s] [workspace-write] [-a] [on-request]" in codex
+    assert PLUGINS_OFF in codex
     prompt = (tmp_path / "sessions" / "agent-07" / "prompt.txt").read_text().strip()
     assert codex.endswith(f"[{prompt}]")
 
@@ -255,7 +258,7 @@ def test_bulk_codex_session_is_sandboxed_and_its_commands_are_checked(
         "attached_capture.sh bulk-07 ananya-mac AGENT_BULK codex-cli-crawler" in c for c in calls
     )
     codex = next(c for c in calls if c.startswith("codex"))
-    flags = "[exec] [--skip-git-repo-check] [-s] [workspace-write]"
+    flags = f"[exec] {PLUGINS_OFF} [--skip-git-repo-check] [-s] [workspace-write]"
     assert f"{flags} [-c] [sandbox_workspace_write.network_access=true] [--json]" in codex
     crawler = GATEWAY.parent / "agents" / "crawler.py"
     assert f"{sys.executable} {crawler}" in codex

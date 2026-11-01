@@ -41,7 +41,7 @@ codex)
 	# window (excluded from labels). --search: web search, as Claude Code has. Same sandbox and
 	# approvals for everyone: commands that need the network ask you first.
 	(cd "$workdir" && CODEX_HOME=$CODEX_RECORD_HOME codex --no-daemon --search \
-		-s workspace-write -a on-request "$prompt") || status=$?
+		-s workspace-write -a on-request "${CODEX_RECORD_FLAGS[@]}" "$prompt") || status=$?
 	;;
 esac
 stop_window

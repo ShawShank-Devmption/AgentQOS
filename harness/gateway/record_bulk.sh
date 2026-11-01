@@ -62,9 +62,9 @@ codex)
 	# codex exec cannot be limited to one command as --allowedTools does: its sandbox keeps writes
 	# in the session folder, network is allowed for the crawler, and every command it ran is
 	# checked after the window.
-	(cd "$workdir" && CODEX_HOME=$CODEX_RECORD_HOME codex exec --skip-git-repo-check \
-		-s workspace-write -c sandbox_workspace_write.network_access=true --json "$prompt" \
-		</dev/null >codex-events.jsonl) || status=$?
+	(cd "$workdir" && CODEX_HOME=$CODEX_RECORD_HOME codex exec "${CODEX_RECORD_FLAGS[@]}" \
+		--skip-git-repo-check -s workspace-write -c sandbox_workspace_write.network_access=true \
+		--json "$prompt" </dev/null >codex-events.jsonl) || status=$?
 	;;
 esac
 stop_window
