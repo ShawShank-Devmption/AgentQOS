@@ -17,7 +17,7 @@ from common.contracts import (
     GATEWAY_TOPOLOGY,
     GATEWAY_WAN_PORT,
 )
-from eval.run_experiment import load_config
+from eval.run_experiment import host_lock, load_config
 from harness import gateway
 
 
@@ -85,6 +85,8 @@ def test_every_takeover_exit_stops_owned_switch_before_bypass(
     monkeypatch.setattr(
         gateway, "validate_prerequisites", lambda _: ("02:00:00:00:00:01", "02:00:00:00:00:02")
     )
+    # The real lock file may be root-owned on the VM; lock semantics are tested in the runner.
+    monkeypatch.setattr(gateway, "host_lock", lambda: host_lock(tmp_path / "experiment.lock"))
 
     def run(command: list[str], **kwargs: object) -> Mock:
         events.append(" ".join([Path(command[0]).name, *command[1:]]))
