@@ -19,7 +19,7 @@ harness/gateway/vm.sh start     # boots in ~30 s; the gateway comes up by itself
 harness/gateway/vm.sh sync      # ships the committed HEAD; uncommitted edits are NOT synced
 harness/gateway/vm.sh gate      # lint, tests, py3.9 tests, P4 build on the VM
 ...                             # work
-harness/gateway/vm.sh stop      # always — running costs ≈ ₹16/h, stopped ≈ ₹1,000/month
+harness/gateway/vm.sh stop      # Shashank only — running costs ≈ ₹16/h, stopped ≈ ₹1,000/month
 ```
 
 | Command | What it does |
@@ -106,6 +106,9 @@ case grant the teammate's organization account instead.
 
 ### Recording sessions as a teammate (one-time setup)
 
+Step-by-step guide for teammates, with the clean-session checklist and targets:
+`docs/recording_guide.md`.
+
 The two recorders below run on **macOS** only (Terminal.app, `osascript`). Everyone logs in to the
 VM as the one account `shashankbhat` (`AAN_VM_USER` in `harness/gateway/vm_lib.sh`), which owns
 `~/cn_project`, the Python environments and `~/aan-results`; every recording lands in
@@ -126,10 +129,10 @@ recorder finds which profile owns this Mac's tunnel address and prints
 `record: capturing device 'NAME-mac' (10.42.0.x)` — that device, and only it, is labelled.
 Session names are shared by the whole team: prefix them with your name (`ananya-agent-01`).
 
-Sharing the VM: check `vm.sh status` first and tell the team when you start or stop it; never stop
-it, `sync` or `install-gateway` while someone is recording (their session fails). `vm.sh sync`
-replaces the VM's code with your local committed HEAD, so sync only from an up-to-date
-`origin/shashank`.
+Sharing the VM: only Shashank starts, stops and syncs it; teammates never run `vm.sh stop`,
+`sync`, `gate` or `install-gateway` (each one breaks a recording in progress). `vm.sh sync`
+replaces the VM's code with the local committed HEAD, so Shashank syncs only from an
+up-to-date `origin/shashank`.
 
 ### Recording a Claude Code session (AGENT_INTERACTIVE), one command
 
