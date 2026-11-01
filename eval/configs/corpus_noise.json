@@ -1,0 +1,18 @@
+{
+  "ports": [
+    {"proto": 17, "port": 123, "reason": "time sync (NTP)"},
+    {"proto": 6, "port": 5222, "reason": "WhatsApp chat"},
+    {"proto": 6, "port": 5223, "reason": "Apple push notifications"}
+  ],
+  "domains": [
+    {"suffix": "icloud.com", "reason": "iCloud"},
+    {"suffix": "icloud-content.com", "reason": "iCloud"},
+    {"suffix": "apple-cloudkit.com", "reason": "iCloud"},
+    {"suffix": "apple.com", "reason": "Apple system services"},
+    {"suffix": "edge.apple", "reason": "Apple system services"},
+    {"suffix": "docker.com", "reason": "Docker Desktop"},
+    {"suffix": "whatsapp.net", "reason": "WhatsApp"},
+    {"suffix": "whatsapp.com", "reason": "WhatsApp"},
+    {"suffix": "calendar.google.com", "reason": "Google Calendar"}
+  ]
+}

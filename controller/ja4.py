@@ -67,7 +67,8 @@ def ja4(client_hello: bytes) -> str:
         reader.finish()
         signatures = tuple(value for value in signatures if not _grease(value))
     alpn = _alpn(extensions.get(16))
-    domain = _sni(extensions.get(0))
+    sni = extensions.get(0)
+    domain = "d" if sni is not None and _host_name(sni) is not None else "i"
     prefix = f"t{tls_version}{domain}{min(len(cipher_ids), 99):02}{min(len(ext_ids), 99):02}{alpn}"
     cipher_text = ",".join(f"{value:04x}" for value in sorted(cipher_ids))
     ext_text = ",".join(f"{value:04x}" for value in sorted(ext_ids) if value not in (0, 16))
@@ -103,22 +104,36 @@ def _parse(payload: bytes) -> tuple[int, tuple[int, ...], dict[int, bytes]]:
     return version, ciphers, extensions
 
 
-def _sni(body: bytes | None) -> str:
-    if body is None:
-        return "i"
+def server_name(client_hello: bytes) -> str | None:
+    """Return the SNI host name of a complete first TLS ClientHello record, if it carries one.
+
+    Raises:
+        ClientHelloError: If a complete and structurally valid ClientHello is unavailable.
+    """
+    _, _, extensions = _parse(client_hello)
+    sni = extensions.get(0)
+    return None if sni is None else _host_name(sni)
+
+
+def _host_name(body: bytes) -> str | None:
     reader = _Reader(body)
     names = _Reader(reader.vector(2))
     reader.finish()
-    types: set[int] = set()
+    found: dict[int, bytes] = {}
     while names.position < len(names.data):
         name_type = names.integer(1)
         name = names.vector(2)
-        if not name or name_type in types:
+        if not name or name_type in found:
             raise ClientHelloError("empty or duplicate SNI name")
-        types.add(name_type)
-    if not types:
+        found[name_type] = name
+    if not found:
         raise ClientHelloError("empty SNI name list")
-    return "d" if 0 in types else "i"
+    if 0 not in found:
+        return None
+    try:
+        return found[0].decode("ascii").lower()
+    except UnicodeDecodeError as exc:
+        raise ClientHelloError("SNI host name is not ASCII") from exc
 
 
 def _uint16s(data: bytes) -> tuple[int, ...]:

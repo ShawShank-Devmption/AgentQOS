@@ -6,7 +6,7 @@ import hashlib
 
 import pytest
 
-from controller.ja4 import ClientHelloError, ja4
+from controller.ja4 import ClientHelloError, ja4, server_name
 
 
 def client_hello(
@@ -155,3 +155,25 @@ def test_complete_published_foxio_vector() -> None:
     }
     extensions = tuple((value, values.get(value, b"")) for value in extension_ids)
     assert ja4(client_hello(ciphers, extensions)) == "t13d1516h2_8daaf6152771_e5627efa2ab1"
+
+
+def test_server_name_returns_the_lowercase_sni_host() -> None:
+    assert server_name(client_hello()) == "localhost"
+    upper = (0, b"\x00\x0e\x00\x00\x0bChatGPT.com")
+    assert server_name(client_hello(extensions=(upper,))) == "chatgpt.com"
+
+
+def test_server_name_is_none_without_a_host_name_entry() -> None:
+    assert server_name(client_hello(extensions=((16, b"\x00\x03\x02h2"),))) is None
+    assert server_name(client_hello(extensions=((0, b"\x00\x04\x01\x00\x01x"),))) is None
+
+
+@pytest.mark.parametrize("body", [b"", b"\x00\x08\x00\x00\x09localhost", b"\x00\x03\x00\x00\x00"])
+def test_server_name_rejects_malformed_sni(body: bytes) -> None:
+    with pytest.raises(ClientHelloError):
+        server_name(client_hello(extensions=((0, body),)))
+
+
+def test_server_name_needs_the_complete_record() -> None:
+    with pytest.raises(ClientHelloError):
+        server_name(client_hello()[:-3])
