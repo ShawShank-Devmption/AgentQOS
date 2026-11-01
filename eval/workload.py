@@ -27,7 +27,9 @@ from common.contracts import (
     TRAINING_LABELS,
     TrafficClass,
 )
+from harness.demo_traffic import lane_schedules, take_packet_budget, validate_shapes
 from harness.topology import HOSTS
+from harness.traffic import HEADER, WIRE_BYTES, payload_sizes
 
 PROFILE_FIELDS = {
     "provenance",
@@ -44,6 +46,7 @@ PROFILE_FIELDS = {
     "poll_s",
     "max_packets",
     "diffserv_rules",
+    "traffic_shapes",
 }
 CONTROLLER_READY_MARKER = f"controller live intake ready; interface={CPU_CONTROLLER_INTERFACE}"
 
@@ -66,10 +69,15 @@ def _positive_float(value: object, name: str) -> float:
 def load_profile(path: Path) -> dict[str, Any]:
     """Validate the bounded synthetic workload profile before network allocation."""
     raw = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict) or set(raw) != PROFILE_FIELDS:
+    if not isinstance(raw, dict) or set(raw) not in (
+        PROFILE_FIELDS,
+        PROFILE_FIELDS - {"traffic_shapes"},
+    ):
         raise ValueError("workload profile fields differ from the expected schema")
     if raw["provenance"] != "synthetic_udp_stress":
         raise ValueError("workload provenance must identify synthetic UDP stress")
+    if "traffic_shapes" in raw:
+        validate_shapes(raw["traffic_shapes"])
     for name in (
         "destination_port",
         "human_flows",
@@ -118,11 +126,20 @@ def load_profile(path: Path) -> dict[str, Any]:
     return raw
 
 
-def queue_rate_pps(profile: dict[str, Any], link_mbps: int) -> int:
-    """Convert this fixed-size UDP workload's link rate to BMv2 packet units."""
+def queue_rate_pps(
+    profile: dict[str, Any], link_mbps: int, plan: dict[str, Any] | None = None
+) -> int:
+    """Convert link capacity to BMv2 packet units using the planned mean frame size."""
     if type(link_mbps) is not int or link_mbps <= 0:
         raise ValueError("link_mbps must be positive")
-    return link_mbps * 1_000_000 // (8 * (profile["payload_bytes"] + 42))
+    if "traffic_shapes" in profile:
+        if plan is None:
+            raise ValueError("shaped queue rate requires the measured workload plan")
+        sizes = [size + WIRE_BYTES for flow in plan["flows"] for size in payload_sizes(flow)]
+        if not sizes:
+            raise ValueError("queue rate requires a nonempty schedule")
+        return max(1, link_mbps * 1_000_000 * len(sizes) // (8 * sum(sizes)))
+    return link_mbps * 1_000_000 // (8 * (profile["payload_bytes"] + WIRE_BYTES))
 
 
 def archive_inputs(output: Path, sources: Mapping[str, Path]) -> dict[str, str]:
@@ -179,6 +196,17 @@ def build_plan(
         * (profile["agent_bulk_flows"] * profile["burst_parallelism"][burst])
     )
     total_rate = link_mbps * 1_000_000 * profile["offered_load_multiplier"]
+    if "traffic_shapes" in profile:
+        flows = _shaped_flows(profile, rng, seed, share, horizon, total_rate, flow_specs, target_ip)
+        return {
+            "provenance": profile["provenance"],
+            "seed": seed,
+            "share": share,
+            "burst": burst,
+            "duration_s": duration,
+            "link_mbps": link_mbps,
+            "flows": flows,
+        }
     human_count = profile["human_flows"]
     agent_count = len(flow_specs) - human_count
     flows: list[dict[str, Any]] = []
@@ -229,6 +257,104 @@ def build_plan(
     }
 
 
+def _shaped_flows(
+    profile: dict[str, Any],
+    rng: random.Random,
+    seed: int,
+    share: int,
+    horizon: float,
+    total_rate: float,
+    flow_specs: list[tuple[TrafficClass, str]],
+    target_ip: str,
+) -> list[dict[str, Any]]:
+    shapes_for_class = {
+        TrafficClass.HUMAN_INTERACTIVE: ("human_video_call",),
+        TrafficClass.AGENT_INTERACTIVE: ("agent_mcp",),
+        TrafficClass.AGENT_BULK: ("agent_ingest", "agent_crawler"),
+    }
+    flows: list[dict[str, Any]] = []
+    packet_count = 0
+    human_count = profile["human_flows"]
+    agent_count = len(flow_specs) - human_count
+    for label, src_ip in flow_specs:
+        fraction = (
+            (1 - share / 100) / human_count
+            if label == TrafficClass.HUMAN_INTERACTIVE
+            else share / 100 / agent_count
+        )
+        names = shapes_for_class[label]
+        for name in names:
+            remaining = int(total_rate * fraction * horizon / (8 * len(names)))
+            while remaining >= HEADER.size + WIRE_BYTES:
+                emitted = False
+                for packets in lane_schedules(
+                    name,
+                    profile["traffic_shapes"][name],
+                    horizon,
+                    rng,
+                    profile["max_packets"],
+                    wire_budget=remaining,
+                ):
+                    selected = take_packet_budget(packets, remaining)
+                    for packet in selected:
+                        remaining -= packet.payload_bytes + WIRE_BYTES
+                        packet_count += 1
+                        if packet_count > profile["max_packets"]:
+                            raise ValueError("planned packet count exceeds profile max_packets")
+                    if not selected:
+                        # A residual smaller than one shape packet is unavoidable quantization.
+                        if packets:
+                            remaining = 0
+                            break
+                        continue
+                    emitted = True
+                    index = len(flows) + 1
+                    if 33000 + index > 65535:
+                        raise ValueError("too many source ports")
+                    # §7.20: truth comes from orchestration, never packet features or DSCP.
+                    flows.append(
+                        {
+                            "flow_id": f"seed-{seed}-flow-{index}",
+                            "wire_id": index,
+                            "truth": int(label),
+                            "shape": name,
+                            "src_ip": src_ip,
+                            "dst_ip": target_ip,
+                            "src_port": 33000 + index,
+                            "dst_port": profile["destination_port"],
+                            "payload_bytes": profile["payload_bytes"],
+                            "payload_sizes_bytes": [packet.payload_bytes for packet in selected],
+                            "mean_bps": sum(p.payload_bytes + WIRE_BYTES for p in selected)
+                            * 8
+                            / horizon,
+                            "offsets_s": [packet.offset_s for packet in selected],
+                        }
+                    )
+                    if remaining < HEADER.size + WIRE_BYTES:
+                        break
+                if not emitted:
+                    # Quantization may leave too little for another wave; check class totals below.
+                    break
+    for label in TRAINING_LABELS:
+        fraction = (
+            1 - share / 100
+            if label == TrafficClass.HUMAN_INTERACTIVE
+            else share / 100 * sum(item[0] == label for item in flow_specs) / agent_count
+        )
+        expected = total_rate * fraction * horizon / 8
+        actual = sum(
+            size + WIRE_BYTES
+            for flow in flows
+            if flow["truth"] == label
+            for size in flow["payload_sizes_bytes"]
+        )
+        if abs(actual - expected) > expected * 0.02:
+            raise ValueError(
+                f"shape {label.name} cannot meet offered-load tolerance in this window"
+            )
+    return flows
+
+
 def _calls(
     offsets: list[float], label: TrafficClass, call_s: float, rng: random.Random
 ) -> list[list[float]]:
@@ -266,6 +392,7 @@ def observations_from_logs(
     if not start < end:
         raise ValueError("invalid measurement window")
     flow_by_id = {flow["flow_id"]: flow for flow in plan["flows"]}
+    sizes_by_flow = {name: payload_sizes(flow) for name, flow in flow_by_id.items()}
     sent: dict[str, dict[str, Any]] = {}
     for path in send_logs:
         for row in _rows(path):
@@ -275,7 +402,10 @@ def observations_from_logs(
             identity = packet_id(plan["seed"], flow["wire_id"], row["sequence"])
             if row.get("packet_id") != identity or identity in sent:
                 raise ValueError("sender log contains duplicate or corrupt identity")
-            if row.get("size_bytes") != flow["payload_bytes"] + 42:
+            sizes = sizes_by_flow[flow["flow_id"]]
+            if not 1 <= row["sequence"] <= len(sizes):
+                raise ValueError("sender sequence outside planned schedule")
+            if row.get("size_bytes") != sizes[row["sequence"] - 1] + WIRE_BYTES:
                 raise ValueError("sender packet size differs from plan")
             if not start <= row["sent_s"] <= end:
                 raise ValueError("sender timestamp outside measurement window")
@@ -560,10 +690,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("the synthetic Mininet workload supports choke_v1 only")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--switch-cpu", type=int)
+    parser.add_argument("--profile", type=Path, default=Path("eval/configs/workload_runtime.json"))
     arguments = parser.parse_args(argv)
     system = os.environ["AAN_SYSTEM"]
     output = Path(os.environ["AAN_OUTPUT_DIR"])
-    profile_path = Path("eval/configs/workload_runtime.json")
+    profile_path = arguments.profile
     profile = load_profile(profile_path)
     plan = build_plan(
         profile,
@@ -588,7 +719,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         pipeline,
         output / "network",
         link_mbps=plan["link_mbps"],
-        queue_rate_pps=None if system == "fairq" else queue_rate_pps(profile, plan["link_mbps"]),
+        queue_rate_pps=(
+            None if system == "fairq" else queue_rate_pps(profile, plan["link_mbps"], plan)
+        ),
         switch_cpu=arguments.switch_cpu,
     )
     with network_context(system, runtime, profile, plan) as network:

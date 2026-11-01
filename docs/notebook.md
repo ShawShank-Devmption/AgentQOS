@@ -378,3 +378,18 @@ Authentication follow-up: the browser login completed successfully. A read-only 
 request for agent-qos-p4dev in vivid-rush-513007-k5 / asia-south2-a was rejected with missing
 `compute.instances.get` permission. Cloud authentication is ready; project/VM authorization
 is the current external blocker. No VM start/stop/sync/deployment was performed.
+
+## 2026-11-01 — Integration: Dev A snapshot merged, Dev C D2 ported onto the live runtime
+
+`origin/ananya` (C1, C2, C3, C4 tooling, D4 tests, G2, P4.4) merged into `origin/shashank`. Its
+copies of `harness/gateway/{vm.sh,bypass.sh,netsetup.sh}` were an older version of the
+VM-verified scripts and were dropped; G2 now calls `bypass.sh off` / `bypass.sh on`.
+
+D2 (`origin/jobin` `7f7b43a`) had been back-ported to a branch without the live runtime, so its
+`eval.workload` was a plan-only CLI. Ported here onto the existing runtime instead: profile
+`traffic_shapes` extension, shaped planner, variable-size sender and join, plan-based queue rate,
+plus `eval.workload --profile PATH` so a cell picks the profile on the `--execute` command line
+(the frozen experiment-config schema is unchanged). The plan-only CLI and its tests were not
+ported. Host: pytest and lint green. Not yet run on the VM: `make build` for the merged P4,
+PTF suites, a D2 cell through BMv2.
+

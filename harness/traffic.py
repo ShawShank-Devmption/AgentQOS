@@ -22,6 +22,20 @@ def packet_id(seed: int, wire_id: int, sequence: int) -> str:
     return HEADER.pack(seed, wire_id, sequence).hex()
 
 
+def payload_sizes(flow: dict[str, Any]) -> list[int]:
+    """Validate and return the UDP payload size for each planned packet, in sequence order."""
+    sizes = flow.get("payload_sizes_bytes")
+    if sizes is None:
+        sizes = [flow["payload_bytes"]] * len(flow["offsets_s"])
+    if (
+        not isinstance(sizes, list)
+        or len(sizes) != len(flow["offsets_s"])
+        or any(type(size) is not int or not HEADER.size <= size <= 1472 for size in sizes)
+    ):
+        raise ValueError("payload sizes must match the schedule and fit the measurement header/MTU")
+    return sizes
+
+
 def _write_rows(path: Path, rows: list[dict[str, Any]]) -> None:
     with path.open("x", encoding="utf-8") as stream:
         for row in rows:
@@ -37,9 +51,11 @@ def run_sender(plan: dict[str, Any], log_path: Path) -> None:
     end = plan["end_s"]
     events = sorted(
         (
-            (start + offset, flow, index + 1)
+            (start + offset, flow, index + 1, size)
             for flow in plan["flows"]
-            for index, offset in enumerate(flow["offsets_s"])
+            for index, (offset, size) in enumerate(
+                zip(flow["offsets_s"], payload_sizes(flow), strict=True)
+            )
         ),
         key=lambda item: (item[0], item[1]["wire_id"], item[2]),
     )
@@ -51,14 +67,14 @@ def run_sender(plan: dict[str, Any], log_path: Path) -> None:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, plan["socket_buffer_bytes"])
             sock.bind((flow["src_ip"], flow["src_port"]))
             sockets[flow["flow_id"]] = sock
-        for scheduled, flow, sequence in events:
+        for scheduled, flow, sequence, size in events:
             if scheduled > end:
                 break
             delay = scheduled - time.time()
             if delay > 0:
                 time.sleep(delay)
             identity = packet_id(seed, flow["wire_id"], sequence)
-            payload = bytes.fromhex(identity) + bytes(flow["payload_bytes"] - HEADER.size)
+            payload = bytes.fromhex(identity) + bytes(size - HEADER.size)
             sent = time.time()
             sockets[flow["flow_id"]].sendto(payload, (flow["dst_ip"], flow["dst_port"]))
             rows.append(

@@ -129,3 +129,25 @@ make lint
 Two tests bind ephemeral loopback HTTP ports and exercise actual concurrent HTTP requests. They
 require permission to use local sockets. Runtime tests cover process cleanup/prerequisites with
 fakes; actual BMv2/Mininet smoke is a separate Linux check.
+
+### D2 application-shaped traffic profiles
+
+`eval/configs/workload_demo.json` extends the workload profile (`load_profile`, optional
+`traffic_shapes` field) with seeded application cadences: 30-fps video frame trains with
+lognormal frame sizes in 1200-byte payloads plus 20 ms audio (HUMAN_INTERACTIVE), MCP tool calls
+with think gaps (AGENT_INTERACTIVE), and recurring ingest/crawler waves (AGENT_BULK). Shapes live
+in `harness/demo_traffic.py`; the sender sends each packet's planned payload size. Each class's
+offered frame bytes over `duration_s - drain_s` must be within 2 % of the cell's share, or the
+plan is rejected. The BMv2 queue rate uses the planned mean frame size. Without `--profile` the
+constant-size `eval/configs/workload_runtime.json` is used, as before.
+
+Run a cell on the VM through the normal locked runner (the profile is archived with its hash):
+
+```sh
+sudo env PATH=$PATH HOME=$HOME PYTHONPATH=$PWD AAN_COMPILED_TREE=results/<run>/model/compiled_tree.json \
+  .venv/bin/python -m eval.run_experiment eval/configs/demo_profile_smoke.yaml \
+  --execute .venv/bin/python -m eval.workload --profile eval/configs/workload_demo.json
+```
+
+These are one-direction UDP timing/size approximations, not TCP/TLS sessions. DESIGN GAP: the
+profile's low/med/high settings are experimental until the burst presets are agreed.
