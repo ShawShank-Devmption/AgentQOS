@@ -1,4 +1,4 @@
-Clone https://github.com/p4lang/tutorials, read its README, fetch two of the exercise pages on GitHub with WebFetch, then write notes.md summarising what each exercise teaches.
+Clone https://github.com/p4lang/tutorials, read its README, fetch two of the exercise pages on GitHub, then write notes.md summarising what each exercise teaches.
 Research how the WireGuard handshake works: search the web, read the protocol page on wireguard.com, and write handshake.md explaining it step by step with message sizes.
 Create a small Python project that fetches the current weather for Delhi, Mumbai and Bengaluru from the open-meteo.com API, add pytest tests for the parsing, and run them.
 Using the GitHub API, find the five most recent releases of p4lang/behavioral-model and p4lang/p4c and write CHANGES.md summarising what changed.

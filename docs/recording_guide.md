@@ -17,7 +17,7 @@ retrains. **You** record sessions and send him the list.
 | A Google account | Send it to Shashank; he grants VM access |
 | gcloud CLI | Install from <https://cloud.google.com/sdk/docs/install>, then `gcloud auth login` |
 | WireGuard app | Mac App Store and your phone's app store |
-| Claude Code | Installed and logged in (`claude`); sessions use your own Claude account |
+| Claude Code and/or Codex CLI | At least one, installed and logged in; sessions use your own Claude or ChatGPT account. Codex also needs a recording login (§2 step 6). |
 | git and Python 3.11 | For the repository and its virtual environment |
 | Internet | Any network works — it does not need to be Shashank's. It must allow outbound UDP port 51820 (some campus/office Wi-Fi blocks it; then use a phone hotspot). |
 
@@ -45,7 +45,11 @@ retrains. **You** record sessions and send him the list.
    - Then delete the files in `~/.aan-gateway/`: they contain private keys.
 5. Test each device: tunnel on, open <https://1.1.1.1/cdn-cgi/trace>; `ip=34.131.42.32` means its
    traffic goes through the gateway.
-6. The first recorder run asks to let Terminal control *System Events* (needed to quit apps):
+6. **Codex users only:** log Codex in once for recordings:
+   `CODEX_HOME=~/.aan-codex codex login`. Recordings run Codex from this separate home, so your
+   personal Codex settings, model provider, MCP servers, skills and AGENTS.md — which add their own
+   traffic and differ between people — stay out of the data. Your normal Codex is untouched.
+7. The first recorder run asks to let Terminal control *System Events* (needed to quit apps):
    click **Allow**.
 
 ## 3. VM rules
@@ -73,8 +77,8 @@ retrains. **You** record sessions and send him the list.
       The capture measures timing as packets reach the VM, so your connection's jitter is part
       of the data.
 - [ ] A new session name: `NAME-KIND-NN`, lowercase letters, digits and hyphens
-      (`ananya-agent-01`, `ananya-call-02`). Names are shared by the whole team and never reused;
-      a taken name is refused.
+      (`ananya-agent-01`, `ananya-codex-bulk-01`, `ananya-call-02`). Names are shared by the whole
+      team and never reused; a taken name is refused.
 
 **During**
 
@@ -98,27 +102,36 @@ retrains. **You** record sessions and send him the list.
 
 Run everything from the repository root on the Mac, in **Terminal.app**.
 
-### 5.1 Claude Code agent session — AGENT_INTERACTIVE (Mac)
+### 5.1 Coding-agent session — AGENT_INTERACTIVE (Mac)
 
 ```sh
-harness/gateway/record_interactive.sh NAME-agent-01
+harness/gateway/record_interactive.sh NAME-agent-01                       # Claude Code
+harness/gateway/record_interactive.sh --agent codex NAME-codex-agent-01   # Codex CLI
 ```
 
 It checks the VM and your tunnel, prints `record: capturing device 'NAME-mac' (10.42.0.x)` — that
 is the device being labelled — quits other apps (apps with unsaved work ask first), opens the
-capture and starts Claude Code with a task from `harness/agents/prompts/interactive.txt`. Approve
+capture and starts the agent with a task from `harness/agents/prompts/interactive.txt`. Approve
 its tool prompts and give one to three follow-ups in the same direction ("add tests", "also handle
-errors"); aim for 10–20 minutes. **`/exit` or Ctrl-D ends the recording**; Ctrl-C only interrupts
-Claude. The VM ends the window by itself after 60 minutes or if your connection drops.
+errors"); aim for 10–20 minutes. Codex runs in its workspace sandbox and asks before any command
+that needs the network: approve those as you normally would.
+
+**Exiting the agent ends the recording:** Claude Code `/exit` or Ctrl-D; Codex `/quit` or Ctrl-C
+twice. A single Ctrl-C only interrupts the agent. The VM ends the window by itself after 60 minutes
+or if your connection drops.
 
 ### 5.2 Crawler burst — AGENT_BULK (Mac)
 
 ```sh
-harness/gateway/record_bulk.sh NAME-bulk-01
+harness/gateway/record_bulk.sh NAME-bulk-01                        # Claude Code
+harness/gateway/record_bulk.sh --agent codex NAME-codex-bulk-01    # Codex CLI
 ```
 
-Same checks; then Claude Code runs headless and launches a burst of polite crawlers (about a
-minute). Do not touch the Mac until it prints the result.
+Same checks; then the agent runs headless and launches a burst of polite crawlers (about a
+minute). Do not touch the Mac until it prints the result. Codex cannot be limited to the crawler
+command the way Claude Code is, so the recorder checks afterwards: a line
+`record: WARNING, Codex also ran …` means it did something else — the session is recorded, but
+send that line to Shashank.
 
 ### 5.3 Video call — HUMAN_INTERACTIVE (phone)
 
@@ -151,18 +164,18 @@ as human. Afterwards:
 harness/gateway/vm.sh capture-status NAME-browse-01
 ```
 
-### 5.5 Optional: another agent framework — AGENT_INTERACTIVE (Mac)
+### 5.5 Optional: another agent — AGENT_INTERACTIVE (Mac)
 
-For an agent other than Claude Code (Codex CLI, Gemini CLI, …), quit other apps, then:
+For an agent the recorders do not drive (Gemini CLI, Cursor's agent, …), quit other apps, then:
 
 ```sh
-harness/gateway/vm.sh capture-start NAME-codex-01 NAME-mac AGENT_INTERACTIVE codex-cli 900
+harness/gateway/vm.sh capture-start NAME-gemini-01 NAME-mac AGENT_INTERACTIVE gemini-cli 900
 ```
 
 Start the agent in Terminal immediately with a task like those in
 `harness/agents/prompts/interactive.txt`, and exit it before the 15 minutes end; then
-`vm.sh capture-status NAME-codex-01`. The last word before the duration names the framework
-(`codex-cli`, `gemini-cli`) and is recorded as `source_framework`.
+`vm.sh capture-status NAME-gemini-01`. The last word before the duration names the framework and
+is recorded as `source_framework`.
 
 ## 6. How many
 
@@ -170,11 +183,14 @@ Per person (about 1.5–2 hours; spreading it over two or three days and network
 
 | Session | Section | Count |
 |---|---|---|
-| Claude Code agent | §5.1 | 5 |
-| Crawler burst | §5.2 | 5 |
+| Coding agent (Claude Code or Codex) | §5.1 | 5 |
+| Crawler burst (Claude Code or Codex) | §5.2 | 5 |
 | Video call on phone | §5.3 | 3 |
 | Browsing on Mac | §5.4 | 2 |
-| Other agent framework (optional) | §5.5 | 2 |
+| Other agent (optional) | §5.5 | 2 |
+
+If you have both Claude Code and Codex, split the agent and crawler sessions between them: each
+agent is a separate framework in the corpus.
 
 Why: the model is tested on whole sessions it never trained on. With four or five sessions per
 class the score depended almost entirely on which one session was held out (held-out macro-F1
@@ -186,7 +202,9 @@ number and a test on devices the model has never seen.
 | Message or symptom | Fix |
 |---|---|
 | `run this from Terminal.app` | Use macOS Terminal.app, not VS Code's terminal or iTerm |
-| `claude (Claude Code) is not installed` | Install Claude Code and log in |
+| `claude is not installed` / `codex is not installed` | Install that agent and log in |
+| `Codex has no recording login` | Run once: `CODEX_HOME=~/.aan-codex codex login` |
+| `record: WARNING, Codex also ran …` | Session is recorded; send the line to Shashank |
 | `VM is TERMINATED` | Ask Shashank to start it |
 | `traffic leaves via …, not the gateway` | Turn the WireGuard tunnel on |
 | `no WireGuard address in 10.42.0.0/24 on this Mac` | Tunnel not active, or another VPN took over |

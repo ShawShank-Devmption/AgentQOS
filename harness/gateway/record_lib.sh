@@ -1,17 +1,46 @@
 #!/usr/bin/env bash
-# Shared steps of record_interactive.sh and record_bulk.sh (source it): preflight checks, quitting
-# other apps, and a capture window controlled over one SSH connection opened beforehand.
+# Shared steps of record_interactive.sh and record_bulk.sh (source it): agent choice, preflight
+# checks, quitting other apps, and a capture window controlled over one SSH connection opened
+# beforehand.
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/vm_lib.sh"
 
 CAP_SECONDS=${AAN_RECORD_CAP_S:-3600}
 SESSIONS_DIR=${AAN_SESSIONS_DIR:-$HOME/aan-agent-sessions}
+# Codex records from its own home: a personal config.toml (model provider, MCP servers, hooks),
+# skills and AGENTS.md add their own traffic and differ between teammates. One-time login:
+# CODEX_HOME=~/.aan-codex codex login
+CODEX_RECORD_HOME=${AAN_CODEX_HOME:-$HOME/.aan-codex}
+AGENT=claude
 # Never quit: the terminal running the recorder, Finder, and the WireGuard app that owns the tunnel.
 KEEP_APPS=(com.apple.Terminal com.apple.finder com.wireguard.macos)
 
 die() {
 	echo "record: $*" >&2
 	exit 1
+}
+
+# Sets AGENT (claude, the default, or codex) and SESSION from: [--agent claude|codex] SESSION
+parse_args() {
+	local usage=$1
+	shift
+	if [ "${1:-}" = --agent ] && [ $# -ge 2 ]; then
+		AGENT=$2
+		shift 2
+	fi
+	if [ $# -ne 1 ] || [[ ! $AGENT =~ ^(claude|codex)$ ]]; then
+		echo "usage: $usage" >&2
+		exit 2
+	fi
+	SESSION=$(slug "$1")
+}
+
+# source_framework in labels.csv: which agent made the traffic, and in which mode.
+framework() {
+	case $AGENT in
+	claude) echo "claude-code-$1" ;;
+	codex) echo "codex-cli-$1" ;;
+	esac
 }
 
 # One prompt per line in harness/agents/prompts/KIND.txt, picked deterministically per session name.
@@ -34,7 +63,11 @@ preflight() {
 	local session=$1 state ip seen tunnel remote
 	[ "${TERM_PROGRAM:-}" = "Apple_Terminal" ] \
 		|| die "run this from Terminal.app: it quits every other app, including editors"
-	command -v claude >/dev/null || die "claude (Claude Code) is not installed"
+	command -v "$AGENT" >/dev/null || die "$AGENT is not installed"
+	if [ "$AGENT" = codex ]; then
+		CODEX_HOME=$CODEX_RECORD_HOME codex login status >/dev/null 2>&1 \
+			|| die "Codex has no recording login; run once: CODEX_HOME=$CODEX_RECORD_HOME codex login"
+	fi
 	[ ! -e "$SESSIONS_DIR/$session" ] || die "session '$session' already exists locally"
 	read -r state ip < <(instances describe \
 		--format='value(status,networkInterfaces[0].accessConfigs[0].natIP)')

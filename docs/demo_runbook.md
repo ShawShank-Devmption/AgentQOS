@@ -151,6 +151,8 @@ session name always gets the same task). Drive Claude as long as you like; **exi
 (`/exit` or Ctrl-D) ends the recording** and prints the result. Ctrl-C to interrupt Claude is safe.
 If the connection drops, the VM ends the window at that moment; it ends by itself after 60 minutes.
 The first run asks to let Terminal control System Events (needed to quit apps): allow it.
+Codex CLI instead of Claude Code: `record_interactive.sh --agent codex SESSION` (and the same
+for `record_bulk.sh`); setup in `docs/recording_guide.md`.
 Background services are not apps: pause macOS update downloads and iCloud sync beforehand.
 
 ### Recording a crawler session (AGENT_BULK), one command

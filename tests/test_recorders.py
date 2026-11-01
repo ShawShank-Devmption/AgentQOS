@@ -56,6 +56,19 @@ esac
 { printf 'claude cwd=%s' "$PWD"; for arg in "$@"; do printf ' [%s]' "$arg"; done; echo; } \\
 	>>"$AAN_FAKE_LOG"
 """,
+    "codex": """#!/bin/sh
+if [ "$1 $2" = "login status" ]; then exit "${AAN_FAKE_CODEX_LOGIN:-0}"; fi
+{ printf 'codex cwd=%s home=%s' "$PWD" "$CODEX_HOME"
+	for arg in "$@"; do printf ' [%s]' "$arg"; done; echo; } >>"$AAN_FAKE_LOG"
+if [ "$1" = exec ]; then
+	item='{"type":"item.completed","item":{"type":"command_execution","command":"%s"}}'
+	printf "$item\\n" "/bin/zsh -lc python harness/agents/crawler.py --crawlers 8"
+	[ -z "$AAN_FAKE_CODEX_EXTRA" ] || {
+		printf "$item\\n" "/bin/zsh -lc curl https://example.com"
+		echo '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"r","tool":"js"}}'
+	}
+fi
+""",
 }
 
 
@@ -74,6 +87,7 @@ def fake_env(tmp_path: Path) -> dict[str, str]:
         "TERM_PROGRAM": "Apple_Terminal",
         "AAN_PYTHON": sys.executable,
         "AAN_FAKE_TUNNEL": TUNNEL_IP,
+        "AAN_CODEX_HOME": str(tmp_path / "codex-home"),
     }
 
 
@@ -152,7 +166,9 @@ def test_refuses_when_no_device_profile_owns_the_tunnel_address(
     assert "attached_capture" not in calls
 
 
-@pytest.mark.parametrize("args", [(), ("../x",), ("a", "b")])
+@pytest.mark.parametrize(
+    "args", [(), ("../x",), ("a", "b"), ("--agent", "gpt", "a"), ("--agent", "codex")]
+)
 def test_rejects_bad_arguments(fake_env: dict[str, str], args: tuple[str, ...]) -> None:
     assert _record(fake_env, *args).returncode == 2
 
@@ -196,3 +212,56 @@ def test_bulk_requires_the_repository_python(tmp_path: Path, fake_env: dict[str,
     assert result.returncode == 1
     assert "virtual environment" in result.stderr
     assert not (tmp_path / "calls.log").exists()
+
+
+def test_interactive_codex_session_uses_the_recording_home_without_the_daemon(
+    tmp_path: Path, fake_env: dict[str, str]
+) -> None:
+    result = _record(fake_env, "--agent", "codex", "agent-07")
+    assert result.returncode == 0, result.stderr
+    calls = (tmp_path / "calls.log").read_text().splitlines()
+    window = "attached_capture.sh agent-07 ananya-mac AGENT_INTERACTIVE codex-cli-interactive"
+    order = [
+        next(i for i, c in enumerate(calls) if marker in c)
+        for marker in (window, "codex cwd=", "remote-got:stop")
+    ]
+    assert order == sorted(order)
+    codex = next(c for c in calls if c.startswith("codex"))
+    assert f"cwd={tmp_path / 'sessions' / 'agent-07'} home={tmp_path / 'codex-home'}" in codex
+    # A shared background server would hold model connections opened before the window.
+    assert "[--no-daemon] [--search] [-s] [workspace-write] [-a] [on-request]" in codex
+    prompt = (tmp_path / "sessions" / "agent-07" / "prompt.txt").read_text().strip()
+    assert codex.endswith(f"[{prompt}]")
+
+
+def test_codex_needs_its_recording_login_before_any_capture(
+    tmp_path: Path, fake_env: dict[str, str]
+) -> None:
+    result = _record({**fake_env, "AAN_FAKE_CODEX_LOGIN": "1"}, "--agent", "codex", "agent-07")
+    assert result.returncode == 1
+    assert f"CODEX_HOME={tmp_path / 'codex-home'} codex login" in result.stderr
+    assert not (tmp_path / "calls.log").exists()  # stopped before contacting the VM
+
+
+@pytest.mark.parametrize("extra", ["", "1"])
+def test_bulk_codex_session_is_sandboxed_and_its_commands_are_checked(
+    tmp_path: Path, fake_env: dict[str, str], extra: str
+) -> None:
+    env = {**fake_env, "AAN_FAKE_CODEX_EXTRA": extra}
+    result = _record(env, "--agent", "codex", "bulk-07", script="record_bulk.sh")
+    assert result.returncode == 0, result.stderr
+    calls = (tmp_path / "calls.log").read_text().splitlines()
+    assert any(
+        "attached_capture.sh bulk-07 ananya-mac AGENT_BULK codex-cli-crawler" in c for c in calls
+    )
+    codex = next(c for c in calls if c.startswith("codex"))
+    flags = "[exec] [--skip-git-repo-check] [-s] [workspace-write]"
+    assert f"{flags} [-c] [sandbox_workspace_write.network_access=true] [--json]" in codex
+    crawler = GATEWAY.parent / "agents" / "crawler.py"
+    assert f"{sys.executable} {crawler}" in codex
+    assert (tmp_path / "sessions" / "bulk-07" / "codex-events.jsonl").exists()
+    # codex exec cannot be limited to the crawler, so anything else it ran is reported.
+    assert ("command_execution: /bin/zsh -lc curl https://example.com" in result.stderr) == bool(
+        extra
+    )
+    assert ("mcp_tool_call: js" in result.stderr) == bool(extra)
