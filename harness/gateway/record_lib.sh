@@ -4,7 +4,6 @@
 set -euo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/vm_lib.sh"
 
-DEVICE=${AAN_RECORD_DEVICE:-team-laptop}
 CAP_SECONDS=${AAN_RECORD_CAP_S:-3600}
 SESSIONS_DIR=${AAN_SESSIONS_DIR:-$HOME/aan-agent-sessions}
 # Never quit: the terminal running the recorder, Finder, and the WireGuard app that owns the tunnel.
@@ -23,8 +22,16 @@ pick_prompt() {
 	grep . "$file" | sed -n "${index}p"
 }
 
+# This Mac's WireGuard address: the capture filters on it, so it decides which device is labelled.
+tunnel_address() {
+	ifconfig | awk -v net="${AAN_CLIENT_NET%0/24}" \
+		'$1 == "inet" && index($2, net) == 1 { print $2; exit }'
+}
+
+# Sets DEVICE: the profile this Mac's tunnel uses, looked up on the VM (never a default name, so
+# one person's session can never capture another person's device).
 preflight() {
-	local session=$1 state ip seen
+	local session=$1 state ip seen tunnel remote
 	[ "${TERM_PROGRAM:-}" = "Apple_Terminal" ] \
 		|| die "run this from Terminal.app: it quits every other app, including editors"
 	command -v claude >/dev/null || die "claude (Claude Code) is not installed"
@@ -35,8 +42,16 @@ preflight() {
 	seen=$(curl -fsS --max-time 8 https://1.1.1.1/cdn-cgi/trace | sed -n 's/^ip=//p') \
 		|| die "no internet; is WireGuard on?"
 	[ "$seen" = "$ip" ] || die "traffic leaves via $seen, not the gateway $ip: turn WireGuard on"
-	ssh_vm --command "test ! -e ~/aan-results/corpus/$session" </dev/null \
-		|| die "session '$session' already exists on the VM"
+	tunnel=$(tunnel_address)
+	[ -n "$tunnel" ] || die "no WireGuard address in $AAN_CLIENT_NET on this Mac"
+	remote="test ! -e ~/aan-results/corpus/$session"
+	remote+=" || { echo \"session '$session' already exists on the VM\" >&2; exit 1; }"
+	remote+="; peer=\$(sudo grep -lx 'AllowedIPs = $tunnel/32' $AAN_STATE_DIR/peers/*.conf)"
+	remote+=" || { echo 'no device profile has address $tunnel' >&2; exit 1; }"
+	remote+="; basename \"\$peer\" .conf"
+	DEVICE=$(ssh_vm --command "$remote" </dev/null) || die "VM check failed (see above)"
+	DEVICE=$(device_name "$DEVICE")
+	echo "record: capturing device '$DEVICE' ($tunnel)"
 }
 
 running_app_ids() {

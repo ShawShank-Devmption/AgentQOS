@@ -104,12 +104,39 @@ gcloud compute instances add-iam-policy-binding agent-qos-p4dev --zone=asia-sout
 project sits in an organization; a domain-restriction policy may reject outside accounts, in which
 case grant the teammate's organization account instead.
 
+### Recording sessions as a teammate (one-time setup)
+
+The two recorders below run on **macOS** only (Terminal.app, `osascript`). Everyone logs in to the
+VM as the one account `shashankbhat` (`AAN_VM_USER` in `harness/gateway/vm_lib.sh`), which owns
+`~/cn_project`, the Python environments and `~/aan-results`; every recording lands in
+`~/aan-results/corpus/SESSION/` there, whoever made it.
+
+1. The project owner grants your Google account access (section above). If your first
+   `vm.sh ssh` fails with *does not have access to service account*, the owner also grants you
+   `roles/iam.serviceAccountUser` on the VM's service account (adding your SSH key edits the VM's
+   metadata).
+2. `gcloud auth login`; clone the repository and check out `origin/shashank`; create the venv
+   (`python3.11 -m venv .venv`; the crawler is stdlib-only); install Claude Code and log in.
+3. `harness/gateway/vm.sh ssh --command true` once: creates your SSH key and registers it.
+4. Your own WireGuard profile, never a shared one: `harness/gateway/vm.sh add-device NAME-mac`,
+   import `~/.aan-gateway/NAME-mac.conf` in the WireGuard app, then delete the files.
+
+Each session: WireGuard on, then `record_interactive.sh` or `record_bulk.sh` as below. The
+recorder finds which profile owns this Mac's tunnel address and prints
+`record: capturing device 'NAME-mac' (10.42.0.x)` — that device, and only it, is labelled.
+Session names are shared by the whole team: prefix them with your name (`ananya-agent-01`).
+
+Sharing the VM: check `vm.sh status` first and tell the team when you start or stop it; never stop
+it, `sync` or `install-gateway` while someone is recording (their session fails). `vm.sh sync`
+replaces the VM's code with your local committed HEAD, so sync only from an up-to-date
+`origin/shashank`.
+
 ### Recording a Claude Code session (AGENT_INTERACTIVE), one command
 
-From **Terminal.app** on the Mac, with WireGuard (`team-laptop`) on and the VM running:
+From **Terminal.app** on the Mac, with this Mac's WireGuard profile on and the VM running:
 
 ```sh
-cd ~/Projects/cn_project
+cd ~/Projects/cn_project          # your clone
 harness/gateway/record_interactive.sh agent-03
 ```
 

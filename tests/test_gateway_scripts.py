@@ -51,7 +51,8 @@ def _run_vm_with_fake_gcloud(tmp_path: Path, *args: str) -> list[str]:
 
 def test_vm_ssh_forwards_arguments(tmp_path: Path) -> None:
     argv = _run_vm_with_fake_gcloud(tmp_path, "ssh", "--command", "uptime")
-    assert argv[:2] == ["compute", "ssh"]
+    # Everyone logs in as the one VM account that owns ~/cn_project, the venvs and results.
+    assert argv[:3] == ["compute", "ssh", "shashankbhat@agent-qos-p4dev"]
     assert "--tunnel-through-iap" in argv
     assert argv[-2:] == ["--command", "uptime"]
 

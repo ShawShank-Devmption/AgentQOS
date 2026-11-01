@@ -6,6 +6,9 @@ set -euo pipefail
 VM=${AAN_VM:-agent-qos-p4dev}
 ZONE=${AAN_ZONE:-asia-south2-a}
 PROJECT=${AAN_PROJECT:-vivid-rush-513007-k5}
+# Everyone logs in as the one VM account that owns ~/cn_project, the venvs and ~/aan-results;
+# gcloud would otherwise create an empty account named after each person's local user.
+VM_USER=${AAN_VM_USER:-shashankbhat}
 # Python 3.11/3.9 environments built during VM setup; synced trees link to them.
 VENV_SRC=${AAN_VENV_SRC:-'~/agent-aware-net-final'}
 PROFILES=${AAN_PROFILES:-$HOME/.aan-gateway}
@@ -16,7 +19,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 instances() { gcloud compute instances "$1" "$VM" --zone="$ZONE" --project="$PROJECT" "${@:2}"; }
 ssh_vm() {
 	# --verbosity=error hides the IAP tunnel's NumPy performance warning (harmless at our rates).
-	gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" --tunnel-through-iap --quiet \
+	gcloud compute ssh "$VM_USER@$VM" --zone="$ZONE" --project="$PROJECT" --tunnel-through-iap --quiet \
 		--verbosity=error "$@"
 }
 

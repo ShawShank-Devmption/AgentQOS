@@ -14,12 +14,15 @@ import pytest
 GATEWAY = Path(__file__).resolve().parents[1] / "harness" / "gateway"
 PROMPTS = Path(__file__).resolve().parents[1] / "harness" / "agents" / "prompts"
 VM_IP = "203.0.113.7"
+TUNNEL_IP = "10.42.0.12"
 
 FAKES = {
     "gcloud": f"""#!/bin/sh
 echo "gcloud $*" >>"$AAN_FAKE_LOG"
 case "$*" in
 *"instances describe"*) printf 'RUNNING\\t{VM_IP}\\n' ;;
+*"AllowedIPs = {TUNNEL_IP}/32"*) echo ananya-mac ;;
+*AllowedIPs*) echo "no device has that address" >&2; exit 1 ;;
 *attached_capture.sh*)
 	echo AAN_READY
 	read -r line
@@ -27,6 +30,12 @@ case "$*" in
 	printf '{{\\n  "status": "complete"\\n}}\\n'
 	;;
 esac
+""",
+    "ifconfig": """#!/bin/sh
+printf 'en0: flags=8863<UP>\\n\\tinet 192.168.1.20 netmask 0xffffff00\\n'
+[ -n "$AAN_FAKE_TUNNEL" ] && printf 'utun4: flags=8051<UP>\\n\\tinet %s --> %s\\n' \\
+	"$AAN_FAKE_TUNNEL" "$AAN_FAKE_TUNNEL"
+exit 0
 """,
     "curl": f"""#!/bin/sh
 printf 'fl=1\\nip=%s\\n' "${{AAN_FAKE_EGRESS:-{VM_IP}}}"
@@ -64,6 +73,7 @@ def fake_env(tmp_path: Path) -> dict[str, str]:
         "AAN_SESSIONS_DIR": str(tmp_path / "sessions"),
         "TERM_PROGRAM": "Apple_Terminal",
         "AAN_PYTHON": sys.executable,
+        "AAN_FAKE_TUNNEL": TUNNEL_IP,
     }
 
 
@@ -93,7 +103,7 @@ def test_interactive_session_runs_checks_quit_window_claude_stop_in_order(
             "instances describe",
             "test ! -e ~/aan-results/corpus/agent-03",
             "com.microsoft.VSCode",
-            "attached_capture.sh agent-03 team-laptop AGENT_INTERACTIVE claude-code-interactive",
+            "attached_capture.sh agent-03 ananya-mac AGENT_INTERACTIVE claude-code-interactive",
             "claude cwd=",
             "remote-got:stop",
         )
@@ -122,6 +132,26 @@ def test_refuses_when_traffic_bypasses_the_gateway(
     assert "attached_capture" not in (tmp_path / "calls.log").read_text()
 
 
+def test_refuses_without_a_wireguard_address_on_this_mac(
+    tmp_path: Path, fake_env: dict[str, str]
+) -> None:
+    result = _record({**fake_env, "AAN_FAKE_TUNNEL": ""}, "agent-03")
+    assert result.returncode == 1
+    assert "WireGuard address" in result.stderr
+    assert "attached_capture" not in (tmp_path / "calls.log").read_text()
+
+
+def test_refuses_when_no_device_profile_owns_the_tunnel_address(
+    tmp_path: Path, fake_env: dict[str, str]
+) -> None:
+    # The captured device is whichever profile this Mac's tunnel uses, never a default name.
+    result = _record({**fake_env, "AAN_FAKE_TUNNEL": "10.42.0.99"}, "agent-03")
+    assert result.returncode == 1
+    calls = (tmp_path / "calls.log").read_text()
+    assert "AllowedIPs = 10.42.0.99/32" in calls
+    assert "attached_capture" not in calls
+
+
 @pytest.mark.parametrize("args", [(), ("../x",), ("a", "b")])
 def test_rejects_bad_arguments(fake_env: dict[str, str], args: tuple[str, ...]) -> None:
     assert _record(fake_env, *args).returncode == 2
@@ -147,7 +177,7 @@ def test_bulk_session_runs_headless_claude_limited_to_the_crawler(
     assert result.returncode == 0, result.stderr
     calls = (tmp_path / "calls.log").read_text().splitlines()
     assert any(
-        "attached_capture.sh bulk-01 team-laptop AGENT_BULK claude-code-crawler" in c for c in calls
+        "attached_capture.sh bulk-01 ananya-mac AGENT_BULK claude-code-crawler" in c for c in calls
     )
     claude = next(c for c in calls if c.startswith("claude"))
     crawler = GATEWAY.parent / "agents" / "crawler.py"
