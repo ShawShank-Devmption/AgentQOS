@@ -190,3 +190,191 @@ checkpoint features match what the switch would compute for a new flow. Under su
 to the invoking user, who owns the session directory. Host tests use a fake tcpdump; the first real
 session on the VM is the runtime check. Labels are per device and window: other traffic from the
 device during a session inherits the label (operator keeps the device otherwise idle).
+
+## 2026-10-31 — C4/P4.3 overhead measurement preparation (Dev A)
+
+Scope: design §10 / §7.18 (relative overhead on the same host, switch pinned to one CPU),
+§7.19 (locked, append-only runs), and §7.6 (punt cap). No frozen contracts changed.
+
+Source inspection: `harness/runtime.py:switch_command` does **not** pass `--log-console`.
+This does not establish whether the VM's binary was compiled with logging/debug support.
+No logging/punt fix is justified by this inspection alone. The earlier 601 ms versus 112 ms
+HUMAN p99 smoke remains the only recorded live evidence; these are not new measurements.
+
+Implemented `eval.overhead` as a workload for the existing `eval.run_experiment` runner,
+using its exclusive lock, config snapshots, command archival, and append-only result paths.
+It reuses the existing seeded UDP scheduler, profiles, network adapters, controller, and metrics.
+Only the aggregate offered packet rate changes; the original profile is archived unchanged and
+the requested pps is explicit in the archived command and `overhead.json`.
+
+`RuntimeConfig.switch_cpu` launches BMv2 through `taskset` before threads are created.
+Unavailable CPUs/taskset fail before allocating the network. The workload verifies affinity
+and records process-wide CPU time, CPU-port TX packets (emitted clones, not punt requests),
+configured punt rate/burst, launch argv, binary SHA-256, switch log bytes, and compiled table
+capacity/logical register bits. CPU-port measurements for FIFO are unavailable, not zero.
+The punt-cap check includes the frozen burst allowance; it is an average-window diagnostic,
+not a proof of short-window enforcement. No new P4 counters or ABI additions are introduced.
+
+Measurement limits: one-way latency uses the existing endpoint send/receive timestamps, so
+host scheduling is included. CPU/counter sampling surrounds actor startup and drain as well
+as traffic; `sample_elapsed_s` records that denominator. These are prototype measurements,
+not isolated hardware pipeline latency. `summary.json` reports losses alongside latency;
+do not interpret surviving-packet percentiles without checking loss and achieved offered rate
+from sender logs. The coarse sweep below does not prove a global maximum safe packet rate.
+
+### VM execution still required
+
+`gcloud` is not installed on this Mac session. No Linux network or live measurement has been
+run for this change. Use the team VM procedure in `docs/handoff_2026-10-31.md` §2 after syncing
+these working-tree changes (its `git archive HEAD` example only includes committed files).
+Do not overwrite existing VM evidence. Use the same available CPU for all six runs, with the
+same built binaries and compiled model; keep other workloads idle.
+
+From the VM repository root, after `make lint && make test && make build`:
+
+```sh
+# Set TASK_SWITCH_CPU to an allowed CPU shown by taskset -pc $$.
+# Set AAN_COMPILED_TREE to the existing trained/equivalence-gated compiled_tree.json.
+export TASK_SWITCH_CPU=0
+export AAN_COMPILED_TREE=/path/to/equivalence-gated/compiled_tree.json
+for pps in 100 1000 2900; do
+  for system in fifo ours; do
+    sudo env PATH="$PATH" PYTHONPATH="$PWD" AAN_COMPILED_TREE="$AAN_COMPILED_TREE" \
+      .venv/bin/python -m eval.run_experiment "eval/configs/overhead_${pps}_${system}.yaml" \
+      --execute .venv/bin/python -m eval.overhead --pps "$pps" --switch-cpu "$TASK_SWITCH_CPU"
+  done
+done
+```
+
+The YAML schema remains exactly design §4.6. Each rate/system pair has a distinct config/output
+root. A repeat requires a new config name/output root; never delete or reuse old evidence.
+The same profile, seed, class shares, duration, and packet schedule are used within each pair.
+If any level fails, retain the failure artifacts before investigating/repeating.
+
+Record the actual output paths/config hashes and fill this table from `summary.json` and
+`overhead.json`. Report HUMAN p50/p99 plus other classes, and compute aggregate percentiles
+from observations if an all-packet table is needed; never average class percentiles.
+
+| Requested pps | Pipeline | HUMAN p50 ms | HUMAN p99 ms | Switch CPU % | CPU-port TX / sample s |
+|---|---|---|---|---|---|
+| 100 | l2fwd | unavailable | unavailable | unavailable | unavailable (no CPU port) |
+| 100 | agent_aware | unavailable | unavailable | unavailable | unavailable |
+| 1000 | l2fwd | unavailable | unavailable | unavailable | unavailable (no CPU port) |
+| 1000 | agent_aware | unavailable | unavailable | unavailable | unavailable |
+| 2900 | l2fwd | unavailable | unavailable | unavailable | unavailable (no CPU port) |
+| 2900 | agent_aware | unavailable | unavailable | unavailable | unavailable |
+
+Then evaluate `(ours_p99 / fifo_p99) - 1 < 0.05` for matched measurements, inspect actual
+sender cadence, losses, CPU saturation, log volume and punt cap. Investigate the installed
+BMv2 build flags/version separately before attributing cost to logging. Refine the pps grid
+around any boundary with new configs; do not change demo link rates until measured evidence
+supports a safe operating point. The permitted link range remains 10–50 Mbps (§4.6).
+If no permitted rate meets the anchor, report that result rather than bypassing the contract.
+
+Re-run `review_1_smoke` with `eval.workload` under both `ours` and `fifo` using new output roots,
+same seed/profile/model and hardware conditions, and report
+`HUMAN_INTERACTIVE.latency_ms.p99(ours) / HUMAN_INTERACTIVE.latency_ms.p99(fifo)`.
+The ratio, maximum passing pps, cause of the slowdown, and overhead table remain **pending VM
+measurement**. C4 is not complete and D4 remains gated.
+
+Host verification for this preparation:
+
+- `make lint`: passed (`ruff check` and `ruff format --check`, 98 Python files).
+- `.venv/bin/python -m pytest tests/test_overhead.py tests/test_runtime.py`: 25 passed.
+- All six `overhead_*.yaml` configs passed `eval.run_experiment.load_config`.
+- `make test`: 493 passed, 4 skipped (16.38 s), after allowing loopback sockets outside
+  the filesystem/network sandbox. The sandboxed attempt failed existing HTTP/UDP tests with
+  `PermissionError` on socket bind; it did not expose an overhead-code failure.
+- `git diff --check`: passed.
+- Baseline ML/plot packages were installed into the existing local `.venv` to enable full
+  collection; no project dependencies or manifests were added.
+- Real p4c/BMv2/Mininet/VM checks: not run here; required before C4 can be marked complete.
+
+## 2026-10-31 — remaining Dev A implementation
+
+C2 (design §5.1/§7.15): replaced the unsendable 13-byte test frame with an Ethernet-only IPv4
+frame; all 24 cases are host-inspectable and remain PTF forwarding assertions.
+
+C3 (design §5.2/§7.10/§7.12): the failing assertion followed **two** distinct source flows,
+not just the ClientHello. Added source-sketch checks 0→1→2 around those sends and an unchanged
+counter check after the fragment. No feature/sketch P4 logic changed. This fixes the observable
+test-ordering error; BMv2 confirmation is still required.
+
+C1: the project owner answered yes when asked whether the team approved
+`docs/c1_live_gateway_proposal.md`. Implemented that contract extension in design §4 and
+common/contracts.py, retaining choke_v1 as the original topology. Gateway artifacts use separate
+LAN/WAN flags and reflected-flood exclusion. Generated constants remain in sync. The P4 change
+is a small conditional build-mode increment, not a replacement pipeline.
+
+G2: added inline deployment with explicit FIFO/ours artifacts, peer MAC validation, separate CPU
+interface, bidirectional queue setup, aggregate-shaping prerequisites, exclusive host ownership,
+Thrift-port collision protection, health monitoring and switch-stop-before-bypass cleanup.
+DESIGN GAP: I3 scripts/interfaces and the required `netsetup.sh --switch` handover are absent.
+The launcher deliberately refuses takeover until these prerequisites exist. Host tests cover
+normal completion, handover/start/policy/workload failures, dead switch, missing prerequisites,
+invalid MACs and original artifact rejection. Recovery <5 s and actual shaping are unmeasured.
+
+D4 (design §5.5/§7.7/§7.16): added PTF real-queue set/clear and separate controlled tests for
+protective index selection, zero interactive red drops, bulk non-ECT red drop and ECN behavior.
+Added pre-run latency-target declaration and paired measured-report checks; PTF-derived counts
+are explicitly isolated test evidence, never live workload counters. Production preset values
+are unchanged. D2/D3/C4 readiness and the actual demo comparison remain pending.
+
+C4: added immutable paired reports from completed experiments, including aggregate percentiles,
+HUMAN ratio, loss/achieved rate, punt diagnostics and artifact footprint. Invalid or mismatched
+inputs and incomplete sender schedules are rejected. No new latency or CPU results were made.
+
+`make build` was attempted and stopped at `p4c-bm2-ss: No such file or directory`.
+Per AGENTS.md's incremental compiler gate, further P4 work requires actual compiler output.
+This host also has no gcloud installation/session; Docker daemon is unavailable. No VM has
+been started, stopped or modified in this session. Full usage, per-task review units and
+remaining acceptance checks are documented in `docs/dev_a_verification.md`.
+
+Final host verification after these edits: `make lint` passed (108 Python files formatted),
+`make check-generated` passed, `make test` **534 passed, 6 skipped in 9.44 s**. Five PTF
+modules are skipped without the Linux PTF environment; the remaining skip is an existing
+host-dependent test. All YAML experiment configs passed `load_config`; `git diff --check`
+passed. These results do not replace the blocked Linux compiler/PTF/live acceptance checks.
+
+## 2026-10-31 — P4.4 and P5.1 follow-up
+
+P4.4 (design §10; §7.1/§7.4/§7.11/§7.19/§7.20): implemented deterministic distinct-tuple
+stress trace preparation, original frozen CSV labels from seeded orchestration, a real
+Linux two-tap workload adapter for eval.run_experiment, register snapshots through SwitchApi,
+observed offered-concurrency/refresh checks, actual collision event/occupied-slot analysis,
+switch RSS and logical register storage, and complete-seed Fig. 5 generation. Five new YAML
+configs cover 1k→100k flows and five seeds; the workload profile is local JSON and does not
+change the frozen experiment field set. Checkpoints not reached by the input stay null.
+
+Ran the 25-cell analytical ownership plan on the host at
+`results/state-scaling-plan-dev-a-20261031/plan.json`. Its provenance explicitly says it is
+not a switch measurement, and actual collision/accuracy fields are null. No live scaling
+sweep or measured Fig. 5 has been claimed. See `docs/state_scaling.md` for commands and limits.
+
+P5.1: wrote insertable IEEE LaTeX design, implementation, scaling procedure and limitations
+sections in `docs/paper_dataplane.tex`. Numbers are contract values or explicit targets;
+there are no invented performance claims. The source identifies the current controller as
+Thrift/AF_PACKET rather than asserting Ryu integration. Full manuscript compilation is not
+verified because this host has no LaTeX compiler; the Word artifact was not modified.
+
+DESIGN GAP / C3: further inspection found that §7.15 forbids writes for malformed TLS while
+the earlier fixture expected a slot claim and payload-seen flag. The updated PTF fixture now
+counts a second *valid* TCP flow separately, then requires malformed TLS to leave key,
+packet count, protocol metadata and sketch unchanged. This preserves the frozen requirement.
+The pipeline conformance fix and PTF result remain pending the required compiler/VM gate;
+the earlier explanation of a test-ordering error alone was not complete acceptance.
+
+Installed Google Cloud CLI 591.0.0 and verified it runs. No active account was configured;
+opened `gcloud auth login --brief` for the user to complete in the browser. A local user
+Google account must be authenticated/granted access; there is no separate assistant email
+or Google account to invite. No VM has been modified in this follow-up.
+
+Final host checks: `make lint` passed (113 files), `make check-generated` passed,
+`make test` **552 passed, 6 skipped** (10.63 s after the final PTF fixture update).
+All YAML configs validate and `git diff --check` passed. The skipped Linux PTF modules and
+VM experiments remain acceptance gates; the host test count does not establish their result.
+
+Authentication follow-up: the browser login completed successfully. A read-only describe
+request for agent-qos-p4dev in vivid-rush-513007-k5 / asia-south2-a was rejected with missing
+`compute.instances.get` permission. Cloud authentication is ready; project/VM authorization
+is the current external blocker. No VM start/stop/sync/deployment was performed.

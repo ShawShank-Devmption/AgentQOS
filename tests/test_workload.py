@@ -382,3 +382,33 @@ def test_agent_tool_calls_open_fresh_flows_while_the_human_call_stays_one_flow()
     assert len(agents) >= 8 * (4 - profile["drain_s"]) / profile["agent_call_s"]
     ports = [flow["src_port"] for flow in plan["flows"]]
     assert len(ports) == len(set(ports))
+
+
+def test_smoke_cpu_selection_reaches_only_the_switch_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from contextlib import nullcontext
+    from unittest.mock import Mock
+
+    from eval import workload
+
+    for name, value in {
+        "AAN_SYSTEM": "fifo",
+        "AAN_OUTPUT_DIR": str(tmp_path),
+        "AAN_SEED": "1",
+        "AAN_AGENT_SHARE_PCT": "30",
+        "AAN_BURST_INTENSITY": "low",
+        "AAN_DURATION_S": "30",
+        "AAN_LINK_MBPS": "20",
+        "AAN_OBSERVATIONS_PATH": str(tmp_path / "observations.json"),
+        "AAN_TOPOLOGY": "choke_v1",
+    }.items():
+        monkeypatch.setenv(name, value)
+    runtime = Mock()
+    monkeypatch.setattr("harness.runtime.RuntimeConfig", runtime)
+    monkeypatch.setattr(workload, "archive_inputs", Mock())
+    monkeypatch.setattr(workload, "build_plan", Mock(return_value={"link_mbps": 20}))
+    monkeypatch.setattr(workload, "network_context", lambda *args: nullcontext("network"))
+    monkeypatch.setattr(workload, "_run_network_traffic", Mock(return_value={"packets": []}))
+    assert workload.main(["--switch-cpu", "2"]) == 0
+    assert runtime.call_args.kwargs["switch_cpu"] == 2

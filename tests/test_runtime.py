@@ -196,7 +196,9 @@ def test_cpu_pair_creation_and_cleanup_use_only_frozen_interfaces(
             "name",
             CPU_CONTROLLER_INTERFACE,
         ],
+        ["sysctl", "-qw", f"net.ipv6.conf.{CPU_SWITCH_INTERFACE}.disable_ipv6=1"],
         ["ip", "link", "set", "dev", CPU_SWITCH_INTERFACE, "up"],
+        ["sysctl", "-qw", f"net.ipv6.conf.{CPU_CONTROLLER_INTERFACE}.disable_ipv6=1"],
         ["ip", "link", "set", "dev", CPU_CONTROLLER_INTERFACE, "up"],
         ["ip", "link", "delete", CPU_SWITCH_INTERFACE],
     ]
@@ -265,3 +267,22 @@ def test_missing_ethtool_is_rejected_before_network_mutation(
     )
     with pytest.raises(RuntimePrerequisiteError, match="ethtool"):
         validate_prerequisites(RuntimeConfig(tmp_path / "l2fwd.json", tmp_path / "out"))
+
+
+def test_performance_launch_suppresses_trace_but_supports_no_logging_builds(tmp_path: Path) -> None:
+    config = RuntimeConfig(tmp_path / "pipeline.json", tmp_path / "out")
+    command = switch_command(config, [], False)
+    assert command[command.index("--log-level") + 1] == "off"
+    assert "--log-level" not in switch_command(config, [], False, logging_supported=False)
+
+
+@pytest.mark.parametrize(
+    "help_text,supported", [("--log-level arg", True), ("Usage: SWITCH_NAME", False)]
+)
+def test_logging_capability_detection_uses_the_selected_binary(
+    monkeypatch: pytest.MonkeyPatch, help_text: str, supported: bool
+) -> None:
+    run = Mock(return_value=subprocess.CompletedProcess([], 0, help_text, ""))
+    monkeypatch.setattr(runtime.subprocess, "run", run)
+    assert runtime.switch_logging_supported() is supported
+    assert run.call_args.args[0] == ["simple_switch", "--help"]

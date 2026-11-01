@@ -77,3 +77,9 @@ def _write_config(tmp_path: Path, raw: dict[str, object]) -> Path:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(yaml.safe_dump(raw), encoding="utf-8")
     return config_path
+
+
+def test_c1_gateway_uses_the_existing_field_set(tmp_path: Path) -> None:
+    raw = _valid_config()
+    raw["topology"] = "live_gateway"
+    assert load_config(_write_config(tmp_path, raw)).topology == "live_gateway"

@@ -77,6 +77,9 @@ class ControllerService:
         if now_us < self._next_sweep_us:
             return
         self._next_sweep_us = now_us + _SWEEP_PERIOD_US
+        if not self._classifier.needs_snapshot:
+            # §7.4: no identities/overrides can be refined; epoch maintenance above still runs.
+            return
         try:
             changes = self._classifier.sweep(collect_snapshot(self._api))
             desired = {

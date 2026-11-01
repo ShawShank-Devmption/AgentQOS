@@ -3,7 +3,19 @@
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from common.contracts import EXPERIMENT_TOPOLOGY, MAX_LINK_MBPS, MIN_LINK_MBPS
+from common.contracts import (
+    CONGESTION_HIGH_PACKETS,
+    CPU_PORT,
+    EXPERIMENT_TOPOLOGY,
+    GATEWAY_CPU_INTERFACE,
+    GATEWAY_LAN_INTERFACE,
+    GATEWAY_MAX_FRAME_BYTES,
+    GATEWAY_PORTS,
+    GATEWAY_TOPOLOGY,
+    GATEWAY_WAN_INTERFACE,
+    MAX_LINK_MBPS,
+    MIN_LINK_MBPS,
+)
 
 SWITCH_NAME = "s1"
 
@@ -58,6 +70,27 @@ def topology_manifest(link_mbps: int = 20) -> dict[str, Any]:
         "switch": SWITCH_NAME,
         "hosts": [asdict(host) for host in HOSTS],
         "links": links,
+    }
+
+
+def gateway_manifest(link_mbps: int) -> dict[str, Any]:
+    """Describe C1's inline topology without constructing or modifying I3's network."""
+    if type(link_mbps) is not int:
+        raise ValueError("link_mbps must be an integer")
+    topology_manifest(link_mbps)
+    return {
+        "name": GATEWAY_TOPOLOGY,
+        "ports": [
+            {"port": port, "interface": interface, "congestion_index": index}
+            for index, (port, interface) in enumerate(
+                zip(GATEWAY_PORTS, (GATEWAY_LAN_INTERFACE, GATEWAY_WAN_INTERFACE), strict=True)
+            )
+        ],
+        "cpu_port": CPU_PORT,
+        "cpu_interface": GATEWAY_CPU_INTERFACE,
+        "queue_rate_pps": link_mbps * 1_000_000 // (8 * GATEWAY_MAX_FRAME_BYTES),
+        "queue_depth_packets": 4 * CONGESTION_HIGH_PACKETS,
+        "link_mbps": link_mbps,
     }
 
 

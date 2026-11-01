@@ -1,0 +1,9 @@
+name: state_scaling_25000
+system: ours
+topology: choke_v1
+link_mbps: 50
+agent_share_pct: [50]
+burst_intensity: [low]
+duration_s: 30
+seeds: [1, 2, 3, 4, 5]
+outputs: results/state_scaling_25000/

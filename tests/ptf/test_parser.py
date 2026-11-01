@@ -3,14 +3,11 @@
 import logging
 import re
 import subprocess
-from dataclasses import dataclass
 
 import pytest
-from scapy.layers.inet import IP, TCP, UDP
-from scapy.layers.l2 import Ether
-from scapy.packet import Raw
 
 from common.contracts import TrafficClass
+from tests.parser_cases import parser_cases
 
 pytest.importorskip(
     "ptf.base_tests", reason="PTF runs against BMv2 in the Linux data-plane environment"
@@ -20,52 +17,6 @@ from ptf import testutils  # noqa: E402
 from ptf.base_tests import BaseTest  # noqa: E402
 
 LOGGER = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class ParserCase:
-    """An exact frame and the expected parser eligibility bit."""
-
-    name: str
-    frame: bytes
-    feature_valid: int
-
-
-def _cases() -> tuple[ParserCase, ...]:
-    eth = Ether(src="00:00:00:00:00:01", dst="00:00:00:00:00:02")
-    tcp = eth / IP(src="10.0.0.1", dst="10.0.0.2") / TCP(sport=40000, dport=443)
-    udp = eth / IP(src="10.0.0.1", dst="10.0.0.2") / UDP(sport=40000, dport=53)
-    frames = [
-        ParserCase("tcp", bytes(tcp), 1),
-        ParserCase("udp", bytes(udp), 1),
-        ParserCase("ethernet_padding", bytes(tcp) + b"\x00" * 20, 1),
-        ParserCase("ipv4_options", bytes(eth / IP(options=b"\x01" * 40) / TCP()), 1),
-        ParserCase("tcp_options", bytes(eth / IP() / TCP(options=[("NOP", None)] * 40)), 1),
-        ParserCase(
-            "both_options",
-            bytes(eth / IP(options=b"\x01" * 4) / TCP(options=[("MSS", 1460)])),
-            1,
-        ),
-        ParserCase("non_ipv4", bytes(Ether(type=0x86DD) / Raw(b"\x60" * 64)), 0),
-        ParserCase("fragment_offset", bytes(eth / IP(frag=1) / TCP()), 0),
-        ParserCase("first_fragment", bytes(eth / IP(flags="MF") / TCP()), 0),
-        ParserCase("icmp", bytes(eth / IP(proto=1) / Raw(b"\x00" * 8)), 0),
-        ParserCase("ip_version", bytes(eth / IP(version=6) / TCP()), 0),
-        ParserCase("short_ihl", bytes(eth / IP(ihl=4) / TCP()), 0),
-        ParserCase("short_total_len", bytes(eth / IP(len=19) / TCP()), 0),
-        ParserCase("long_total_len", bytes(eth / IP(len=1000) / TCP()), 0),
-        ParserCase("short_tcp_offset", bytes(eth / IP() / TCP(dataofs=4)), 0),
-        ParserCase("long_tcp_offset", bytes(eth / IP() / TCP(dataofs=15)), 0),
-        ParserCase("missing_tcp", bytes(eth / IP(proto=6)), 0),
-        ParserCase("partial_tcp", bytes(eth / IP(proto=6) / Raw(b"\x00" * 19)), 0),
-        ParserCase("partial_udp", bytes(eth / IP(proto=17) / Raw(b"\x00" * 7)), 0),
-        ParserCase("short_udp_length", bytes(eth / IP() / UDP(len=7)), 0),
-        ParserCase("long_udp_length", bytes(eth / IP() / UDP(len=9)), 0),
-        ParserCase("short_ethernet", bytes(tcp)[:13], 0),
-        ParserCase("partial_ipv4", bytes(tcp)[:33], 0),
-        ParserCase("partial_ipv4_options", bytes(eth / IP(ihl=15, len=60)), 0),
-    ]
-    return tuple(frames)
 
 
 class ParserForwardingTest(BaseTest):
@@ -100,7 +51,7 @@ class ParserForwardingTest(BaseTest):
 
     def runTest(self) -> None:  # noqa: N802
         """Send real frames and verify exact output plus UNKNOWN and eligibility metadata."""
-        for case in _cases():
+        for case in parser_cases():
             with self.subTest(case=case.name):
                 LOGGER.info("parser case %s", case.name)
                 testutils.send_packet(self, (self.device_id, self.ingress_port), case.frame)

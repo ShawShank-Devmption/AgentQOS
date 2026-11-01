@@ -1,0 +1,9 @@
+{
+  "flow_counts": [1000, 10000, 25000, 50000, 100000],
+  "packets_per_flow": 6,
+  "offered_pps": 50000,
+  "payload_bytes": 32,
+  "destination_port": 33002,
+  "drain_s": 3.0,
+  "provenance": "synthetic_udp_state_scaling"
+}

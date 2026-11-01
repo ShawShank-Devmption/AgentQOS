@@ -52,8 +52,13 @@ class RuntimeConfig:
     thrift_port: int = 9090
     duration_s: int = 2
     queue_rate_pps: int | None = None
+    switch_cpu: int | None = None
 
     def __post_init__(self) -> None:
+        if self.switch_cpu is not None and (
+            type(self.switch_cpu) is not int or self.switch_cpu < 0
+        ):
+            raise ValueError("switch_cpu must be a nonnegative integer when specified")
         topology_manifest(self.link_mbps)
         if not 1 <= self.thrift_port <= 65_535:
             raise ValueError("thrift_port must be between 1 and 65535")
@@ -78,37 +83,44 @@ def cpu_port_required(pipeline_json: Path) -> bool:
         raise RuntimePrerequisiteError("expected readable compiled BMv2 pipeline tables") from exc
 
 
-def create_cpu_pair() -> None:
+def create_cpu_pair(
+    switch_interface: str = CPU_SWITCH_INTERFACE,
+    controller_interface: str = CPU_CONTROLLER_INTERFACE,
+) -> None:
     """Create and raise the owned Linux veth pair joining BMv2 to clone reception."""
     subprocess.run(
         [
             "ip",
             "link",
             "add",
-            CPU_SWITCH_INTERFACE,
+            switch_interface,
             "type",
             "veth",
             "peer",
             "name",
-            CPU_CONTROLLER_INTERFACE,
+            controller_interface,
         ],
         check=True,
     )
     try:
-        for interface in (CPU_SWITCH_INTERFACE, CPU_CONTROLLER_INTERFACE):
+        for interface in (switch_interface, controller_interface):
+            # §7.6: CPU-port TX statistics must not include kernel IPv6 discovery traffic.
+            subprocess.run(
+                ["sysctl", "-qw", f"net.ipv6.conf.{interface}.disable_ipv6=1"], check=True
+            )
             subprocess.run(["ip", "link", "set", "dev", interface, "up"], check=True)
     except subprocess.CalledProcessError:
         # The add succeeded: remove both ends if either link-up command fails.
         try:
-            delete_cpu_pair()
+            delete_cpu_pair(switch_interface)
         except subprocess.CalledProcessError:
             logger.exception("failed to remove CPU pair after link-up failure")
         raise
 
 
-def delete_cpu_pair() -> None:
+def delete_cpu_pair(switch_interface: str = CPU_SWITCH_INTERFACE) -> None:
     """Delete the pair through its owned switch end; Linux removes the peer too."""
-    subprocess.run(["ip", "link", "delete", CPU_SWITCH_INTERFACE], check=True)
+    subprocess.run(["ip", "link", "delete", switch_interface], check=True)
 
 
 def install_cpu_mirror(api: SwitchApi) -> None:
@@ -122,9 +134,21 @@ def validate_prerequisites(config: RuntimeConfig) -> None:
         raise RuntimePrerequisiteError("Mininet/BMv2 requires Linux; see docs/ENVIRONMENT.md")
     if os.geteuid() != 0:
         raise RuntimePrerequisiteError("Mininet requires root; run the smoke command with sudo")
+    if config.switch_cpu is not None and (
+        shutil.which("taskset") is None or config.switch_cpu not in os.sched_getaffinity(0)
+    ):
+        raise RuntimePrerequisiteError("switch_cpu requires taskset and an available CPU")
     missing = [
         name
-        for name in ("simple_switch", "simple_switch_CLI", "iperf3", "ip", "tc", "ethtool")
+        for name in (
+            "simple_switch",
+            "simple_switch_CLI",
+            "iperf3",
+            "ip",
+            "tc",
+            "ethtool",
+            "sysctl",
+        )
         if shutil.which(name) is None
     ]
     if missing:
@@ -166,10 +190,19 @@ def stop_process(child: subprocess.Popen[Any], timeout_s: float = 3.0) -> None:
 
 
 def switch_command(
-    config: RuntimeConfig, interfaces: Sequence[tuple[int, str]], cpu_enabled: bool
+    config: RuntimeConfig,
+    interfaces: Sequence[tuple[int, str]],
+    cpu_enabled: bool,
+    *,
+    logging_supported: bool = True,
 ) -> list[str]:
     """Build BMv2 argv with enough queues for every frozen class treatment."""
-    command = ["simple_switch", "--device-id", "0", "--thrift-port", str(config.thrift_port)]
+    # §7.18: taskset applies before exec, so every BMv2 worker inherits one CPU.
+    command = [] if config.switch_cpu is None else ["taskset", "--cpu-list", str(config.switch_cpu)]
+    command.extend(["simple_switch", "--device-id", "0", "--thrift-port", str(config.thrift_port)])
+    # C4/§7.18: a logging-capable BMv2 defaults to per-packet trace level even headless.
+    if logging_supported:
+        command.extend(["--log-level", "off"])
     for port, interface in sorted(interfaces):
         command.extend(["-i", f"{port}@{interface}"])
     if cpu_enabled:
@@ -179,6 +212,19 @@ def switch_command(
         [str(config.pipeline_json.resolve()), "--", "--priority-queues", str(queue_count)]
     )
     return command
+
+
+def switch_logging_supported() -> bool:
+    """Discover logging options so builds with logging compiled out still launch."""
+    try:
+        result = subprocess.run(
+            ["simple_switch", "--help"], capture_output=True, text=True, check=False, timeout=5
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise RuntimePrerequisiteError("cannot inspect simple_switch logging options") from exc
+    if result.returncode not in (0, 1):
+        raise RuntimePrerequisiteError("simple_switch --help failed")
+    return "--log-level" in result.stdout + result.stderr
 
 
 def configure_switch_queues(api: SwitchApi, config: RuntimeConfig) -> None:
@@ -248,7 +294,9 @@ def create_network(config: RuntimeConfig) -> Any:
                 if cpu_enabled:
                     create_cpu_pair()
                     self._cpu_created = True
-                command = switch_command(config, interfaces, cpu_enabled)
+                command = switch_command(
+                    config, interfaces, cpu_enabled, logging_supported=switch_logging_supported()
+                )
                 self._bmv2 = self.popen(command, stdout=self._log, stderr=subprocess.STDOUT)
                 if cpu_enabled:
                     api = SwitchApi(thrift_port=config.thrift_port)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import math
@@ -10,7 +11,7 @@ import random
 import subprocess
 import sys
 import time
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,7 @@ from common.contracts import (
     BURST_INTENSITIES,
     CLASS_TREATMENTS,
     CPU_CONTROLLER_INTERFACE,
+    EXPERIMENT_TOPOLOGY,
     FEATURE_CHECKPOINTS,
     SENDER_SWITCH_PORTS,
     TARGET_SWITCH_PORT,
@@ -550,10 +552,15 @@ def _run_network_traffic(
     return observations_from_logs(plan, send_logs, receiver_log, start, end)
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Execute one configured cell supplied by eval.run_experiment."""
     from harness.runtime import RuntimeConfig
 
+    if os.environ.get("AAN_TOPOLOGY", EXPERIMENT_TOPOLOGY) != EXPERIMENT_TOPOLOGY:
+        raise ValueError("the synthetic Mininet workload supports choke_v1 only")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--switch-cpu", type=int)
+    arguments = parser.parse_args(argv)
     system = os.environ["AAN_SYSTEM"]
     output = Path(os.environ["AAN_OUTPUT_DIR"])
     profile_path = Path("eval/configs/workload_runtime.json")
@@ -582,6 +589,7 @@ def main() -> int:
         output / "network",
         link_mbps=plan["link_mbps"],
         queue_rate_pps=None if system == "fairq" else queue_rate_pps(profile, plan["link_mbps"]),
+        switch_cpu=arguments.switch_cpu,
     )
     with network_context(system, runtime, profile, plan) as network:
         observations = _run_network_traffic(network, plan, profile, output)

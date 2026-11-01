@@ -190,6 +190,16 @@ EXPERIMENT_CONFIG_FIELDS: Final = (
 )
 EXPERIMENT_SYSTEMS: Final = ("ours", "fifo", "diffserv", "fairq", "app_limiter")
 EXPERIMENT_TOPOLOGY: Final = "choke_v1"
+# C1: team approval confirmed by the project owner on 2026-10-31.
+GATEWAY_TOPOLOGY: Final = "live_gateway"
+GATEWAY_LAN_PORT: Final = 1
+GATEWAY_WAN_PORT: Final = 4
+GATEWAY_PORTS: Final = (GATEWAY_LAN_PORT, GATEWAY_WAN_PORT)
+GATEWAY_LAN_INTERFACE: Final = "gw-lan-sw"
+GATEWAY_WAN_INTERFACE: Final = "gw-wan-sw"
+GATEWAY_CPU_INTERFACE: Final = "gw-cpu"
+GATEWAY_MAX_FRAME_BYTES: Final = 1514
+GATEWAY_HEALTH_POLL_S: Final = 0.25
 BURST_INTENSITIES: Final = ("low", "med", "high")
 MIN_LINK_MBPS: Final = 10
 MAX_LINK_MBPS: Final = 50

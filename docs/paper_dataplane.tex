@@ -1,0 +1,191 @@
+% P5.1 insertable IEEE manuscript sections.
+% Authority: docs/design.md sections 4, 5, 7, 10; common/contracts.py.
+% No new live measurements are asserted. Compile inside the team's IEEE main document.
+
+\section{Data Plane Design and Implementation}
+\label{sec:dataplane}
+
+We couple traffic classification and transport treatment in a P4\_16 forwarding pipeline
+for the BMv2 v1model target. A packet passes through bounded parsing, flow-state updates,
+a compiled decision tree, and a class-action stage. The fast path decides the service
+class on each packet; controller refinements do not require waiting for a control-plane
+response. Classification uncertainty defaults to UNKNOWN and best-effort service.
+The prototype addresses IPv4 TCP and UDP at a single controlled bottleneck.
+
+\subsection{Bounded Parsing and Integer Features}
+
+The parser extracts Ethernet, IPv4, and supported transport headers. For a first observed
+TLS payload, it attempts a bounded ClientHello parse with at most sixteen extensions.
+It does not terminate TLS or reconstruct a handshake spanning multiple TCP segments.
+Extension count and a coarse ALPN category supplement timing and flow-shape features;
+TLS metadata is not the sole classification signal. Unsupported network or transport
+headers and fragments follow a best-effort path outside feature updates.
+
+The classifier consumes ten integer features in a fixed order: inter-arrival-time EWMA,
+EWMA absolute deviation, packet count, approximate upstream mean packet size, capped
+upstream/downstream byte ratio, an eight-packet size signature, source new-flow fan-out,
+TLS extension count, ALPN category, and flow age. The quantity named variance in the
+register interface is an EWMA of absolute deviation, not statistical variance.
+Timing EWMAs use an update weight of $1/8$. Size and ratio calculations use the shared
+fixed-point approximations rather than floating-point division. Counter updates saturate,
+and first-packet timing updates omit an undefined previous arrival interval.
+
+The offline extractor mirrors these integer operations. Decision-tree compilation must
+pass an equivalence gate against the trained model before table entries are installed.
+That gate tests model-to-table translation; it does not establish live traffic accuracy,
+which must be evaluated independently from orchestration labels.
+
+\subsection{Flow Ownership and Source Fan Out}
+
+The pipeline hashes the canonical five-tuple into $M=65\,536$ flow slots. Each slot carries
+a 32-bit ownership tag, timing and byte counters, initial packet sizes, protocol metadata,
+and the last class decision. Packet direction is determined by the controlled topology's
+ingress ports; both directions use the same canonical key.
+
+A matching owner updates the slot. A different live owner causes the incoming flow to
+skip feature updates, increment the collision counter, and use an exact controller override
+if present or UNKNOWN otherwise. A different owner may claim an idle slot only after all
+slot fields have been reset. The idle timeout is five seconds. These rules prevent a new
+flow from deliberately inheriting another flow's timing history. A finite ownership tag
+is not a collision-free identity; the scaling input analyzer reports possible tag aliases
+under the actual hash functions rather than assuming independent perfect hashes.
+
+Read-modify-write sequences are annotated atomic. BMv2 behavior does not demonstrate that
+a hardware target can implement the same operations within its stage and memory constraints.
+The annotations state the intended consistency requirement and must be validated again
+for any hardware port.
+
+Source fan-out uses two count-min sketches, each with four rows and $4096$ columns. A new
+flow claim increments one cell per row in the selected epoch. Ordinary packets read the
+estimate without adding another new flow. The controller flips the active epoch and clears
+the retired array only after the required settling interval. CPU clones do not execute a
+second ingress feature update in the intended v1model clone path.
+
+\subsection{Decision Tree and Controller Refinement}
+
+After the six-packet warm-up, the classifier traverses up to eight range-match tables.
+An exact five-tuple override takes precedence over the tree decision. The four labels are
+UNKNOWN, HUMAN\_INTERACTIVE, AGENT\_INTERACTIVE, and AGENT\_BULK. Labels and feature widths
+are shared between the P4 generator, classifier compiler, controller, and evaluation code.
+Low-confidence decisions can request controller attention without delaying forwarding.
+
+Eligible packets are cloned to a dedicated CPU port through a global punt meter. The
+configured cap is $100$ packets per second with a $20$-packet burst allowance. Punt loss
+removes a refinement opportunity; it does not reject the original data packet.
+The current executable controller is a standalone Python Thrift/AF\_PACKET daemon.
+Although the design originally named Ryu, this implementation must not be reported as a
+Ryu application without completing that integration.
+
+\subsection{Class Actions and Congestion Protection}
+
+The class-action table sets DSCP, queue priority, meter selection, and an ECN threshold.
+The current DSCP values are $0$, $34$, $18$, and $8$ for UNKNOWN, HUMAN\_INTERACTIVE,
+AGENT\_INTERACTIVE, and AGENT\_BULK, respectively. Human traffic uses the highest of three
+priority queues. Interactive agent traffic shares the middle priority with UNKNOWN;
+bulk traffic uses the lowest priority. These markings are meaningful only inside the
+controlled deployment domain.
+
+Two meter presets are installed before the workload starts. Egress queue depth selects
+congestion protection through hysteresis: at least $64$ queued packets sets the flag,
+and at most $16$ clears it. The flag selects the normal or protective meter configuration
+in the ingress path. An agent-interactive red decision does not meter-drop traffic.
+For ECN-capable agent packets, red may set CE. Only non-ECN-capable AGENT\_BULK traffic may
+be dropped by this admission-control path under protection.
+
+BMv2 supplies priority queues rather than native weighted round robin. Meter shares and
+priority queues are therefore a software approximation of the intended service policy;
+per-queue packet-rate settings are not an aggregate byte-rate guarantee. The gateway
+requires separate Linux traffic-control shaping on both egress links.
+
+\subsection{Inline Gateway Extension}
+
+The approved gateway extension builds separate artifacts for FIFO and the classifier
+pipeline. LAN and WAN use ports $1$ and $4$; CPU clones use port $255$. Gateway mode has
+separate congestion flags for LAN and WAN egress, so one direction cannot clear the other
+through an unrelated dequeue. The original Mininet artifact retains its single-flag ABI.
+The class meters remain shared across directions, a limitation that precludes claiming
+independent per-direction meter shares.
+
+A flood group contains only the two data ports. Gateway egress suppresses a replica
+returning to its original ingress port. This topological loop prevention is independent
+of classification uncertainty. The launcher validates the gateway artifact, interfaces,
+peer addresses, shaping prerequisites, and switch endpoint before takeover. On switch
+failure or shutdown, it stops the owned process before invoking the infrastructure
+bypass. Connectivity recovery below five seconds remains an acceptance target until
+measured with the actual tunnel and bypass implementation.
+
+\section{State Scaling Measurement Procedure}
+\label{sec:state-scaling-procedure}
+
+The state-scaling implementation prepares seeded synthetic UDP stress traces for
+$1000$, $10\,000$, $25\,000$, $50\,000$, and $100\,000$ distinct five-tuples. Flow identities,
+packet sizes, offered rate, checkpoint, class share, and seeds are preserved in configuration
+and input artifacts. Synthetic class assignments are recorded by orchestration before
+classification. Identical stress schedules across classes do not establish accuracy on
+real human or agent workloads and must be described as a stress experiment.
+
+The prepared hash model records first-owner occupancy, distinct colliding new flows,
+and possible ownership-tag aliases. It is explicitly an analytical input diagnostic,
+not a BMv2 measurement. For approximately uniform independent slot selection, the expected
+occupied-slot count is $M[1-(1-1/M)^N]$ for $N$ offered keys. The implementation uses the
+actual shared hash functions when constructing its diagnostic instead of substituting
+this expression for observed collision counts.
+
+Live runs use the existing locked experiment runner and retain ingress and egress pcaps,
+replay logs, input hashes, and bracketed register snapshots. The collision register counts
+packet collision events, which must not be confused with distinct colliding flows.
+Snapshot reads are rejected if packet counts, tags, or collision counts change across
+the bracket. Insufficient drain time produces a failed measurement rather than a stable
+state claim.
+
+Actual ingress timestamps determine the number of offered flows active inside the idle
+window and the maximum observed refresh gap. A requested $100\,000$-flow point is not
+accepted as evidence of that concurrency merely because its input contains $100\,000$
+keys. Even valid ingress activity does not prove that BMv2 processed the workload without
+backlog. The report retains this distinction alongside observed occupied slots.
+Maintaining $N$ active flows requires at least $N/5$ packet refreshes per second under the
+five-second timeout, before accounting for warm-up and packet loss. This requirement can
+exceed the measured capacity of the software pipeline.
+
+Accuracy is computed at the configured frozen packet checkpoint from independently
+labelled ingress flows and observed egress DSCP. Missing checkpoints are reported
+separately, and the correct fraction of all offered flows counts absent predictions
+against the result. Checkpoints not present in the input are unavailable. Logical
+register storage is calculated as $\sum_i n_i w_i$ bits from the compiled artifact;
+actual process RSS is sampled separately. Neither quantity substitutes for hardware
+resource utilization. Figure~5 is generated only from complete configured seed sets,
+with $95\%$ confidence intervals across seeds. Points that fail the concurrency check
+remain unavailable rather than being silently averaged out.
+
+\section{Prototype Limitations and Verification Status}
+\label{sec:dataplane-limitations}
+
+BMv2 is a software switch, so CPU saturation, process scheduling, queue implementation,
+packet logging, and controller activity can dominate latency. The overhead experiment
+compares minimal forwarding and the full pipeline at identical offered schedules on the
+same host, with the switch pinned to one core. These measurements bound the prototype;
+they do not establish hardware line-rate performance. The below-five-percent overhead
+and thirty-percent human p99 reduction criteria remain evaluation targets, not results
+established by host unit tests.
+
+Flow slots and sketch memory are bounded. Collisions degrade classification to UNKNOWN
+unless an override exists; two indistinguishable ownership tags may escape collision
+detection. Asymmetric observation weakens direction-dependent features. Retransmissions
+and reordering introduce timing noise. IPv6, QUIC-specific metadata, TLS reassembly,
+ECH-resistant attribution, and cross-domain DSCP preservation are outside the prototype's
+validated scope.
+
+One conformance issue remains open: design section~7.15 requires malformed TLS to avoid
+register updates, while the existing pipeline behavior and former smoke fixture allowed a first-payload-seen
+flag and flow claim for malformed TLS carried by otherwise valid TCP. The updated smoke
+fixture preserves the frozen contract by requiring no writes, and counts a second valid
+flow separately. The pipeline mismatch remains unresolved until compiled and exercised. It must be reconciled against the frozen fail-open contract;
+no additional P4 behavior is asserted correct without compiler and BMv2 verification.
+
+At the time of this implementation handoff, host tests and generated-file checks cover
+construction, arithmetic, evidence validation, and lifecycle cleanup. Updated P4 artifacts
+still require compilation with the supported Linux toolchain, followed by parser, pipeline,
+QoS, and gateway PTF runs. The overhead sweep, state-scaling live sweep, verified demo
+classification, congestion comparison, bidirectional shaping, and bypass recovery must
+supply their own archived evidence. The previously documented smoke run did not meet the
+latency objectives and is not replaced by synthetic fixtures or analytical hash plans.

@@ -131,6 +131,8 @@ def generate_headers() -> str:
             "CPU_PORT",
             "TARGET_SWITCH_PORT",
             "FLOOD_GROUP",
+            "GATEWAY_LAN_PORT",
+            "GATEWAY_WAN_PORT",
         )
     )
     constants += "\n" + "\n".join(

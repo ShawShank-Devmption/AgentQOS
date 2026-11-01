@@ -8,6 +8,8 @@ parser PacketParser(
     inout metadata_t meta,
     inout standard_metadata_t standard_metadata)
 {
+    bit<48> tls_prefix;
+
     state start {
         meta.features = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
         meta.tree_node = 0;
@@ -97,25 +99,68 @@ parser PacketParser(
 
     state tls_start {
         meta.payload_bytes = meta.transport_bytes - meta.tcp_header_bytes;
-        transition select(meta.payload_bytes >= 44) {
-            true: parse_tls_fixed;
+        transition select(meta.payload_bytes >= 2) {
+            true: tls_candidate;
             false: valid_transport;
         }
     }
 
+    state tls_candidate {
+        transition select(packet.lookahead<bit<16>>()) {
+            16w5635: tls_prefix_size;
+            default: valid_transport;
+        }
+    }
+
+    state tls_prefix_size {
+        transition select(meta.payload_bytes >= 6) {
+            true: tls_record_prefix;
+            false: malformed_tls;
+        }
+    }
+
+    state tls_record_prefix {
+        tls_prefix = packet.lookahead<bit<48>>();
+        transition select(
+            ((tls_prefix >> 8) & 48w65535) >= 4 &&
+                ((tls_prefix >> 8) & 48w65535) + 5 <= (bit<48>) meta.payload_bytes,
+            (tls_prefix & 48w255) == 1) {
+            (true, true): tls_client_hello_size;
+            (true, false): valid_transport;
+            default: malformed_tls;
+        }
+    }
+
+    state tls_client_hello_size {
+        transition select(meta.payload_bytes >= 44) {
+            true: parse_tls_fixed;
+            false: malformed_tls;
+        }
+    }
+
+    state malformed_tls {
+        // §7.15: malformed TLS forwards UNKNOWN without claiming or updating flow state.
+        meta.feature_valid = 0;
+        meta.tls_parsed = 0;
+        transition accept;
+    }
+
     state parse_tls_fixed {
         packet.extract(hdr.tls_hello_fixed);
-        meta.tls_remaining = meta.payload_bytes - 44;
+        meta.tls_remaining = (bit<32>) hdr.tls_hello_fixed.handshake_length - 35;
         transition select(
             hdr.tls_hello_fixed.record_type == 8w22,
             (hdr.tls_hello_fixed.record_version & 16w65280) == 16w768,
             hdr.tls_hello_fixed.handshake_type == 8w1,
             hdr.tls_hello_fixed.record_length >= 39 &&
-                (bit<32>) hdr.tls_hello_fixed.record_length + 5 <= meta.payload_bytes,
+                (bit<32>) hdr.tls_hello_fixed.record_length + 5 <= meta.payload_bytes &&
+                hdr.tls_hello_fixed.handshake_length >= 35 &&
+                (bit<32>) hdr.tls_hello_fixed.handshake_length + 4 <=
+                    (bit<32>) hdr.tls_hello_fixed.record_length,
             hdr.tls_hello_fixed.session_length <= 32 &&
                 meta.tls_remaining >= (bit<32>) hdr.tls_hello_fixed.session_length + 2) {
             (true, true, true, true, true): parse_tls_session;
-            default: valid_transport;
+            default: malformed_tls;
         }
     }
 
@@ -134,7 +179,7 @@ parser PacketParser(
             (hdr.tls_cipher_length.value & 16w1) == 0 &&
             meta.tls_remaining >= (bit<32>) hdr.tls_cipher_length.value + 1) {
             true: parse_tls_ciphers;
-            false: valid_transport;
+            false: malformed_tls;
         }
     }
 
@@ -151,7 +196,7 @@ parser PacketParser(
             hdr.tls_compression_length.value <= 32 &&
             meta.tls_remaining >= (bit<32>) hdr.tls_compression_length.value + 2) {
             true: parse_tls_compression;
-            false: valid_transport;
+            false: malformed_tls;
         }
     }
 
@@ -167,9 +212,9 @@ parser PacketParser(
         packet.extract(hdr.tls_extensions_length);
         meta.tls_remaining = meta.tls_remaining - 2;
         meta.tls_extensions_remaining = (bit<32>) hdr.tls_extensions_length.value;
-        transition select(meta.tls_extensions_remaining <= meta.tls_remaining) {
+        transition select(meta.tls_extensions_remaining == meta.tls_remaining) {
             true: tls_extensions_start;
-            false: valid_transport;
+            false: malformed_tls;
         }
     }
 
@@ -180,7 +225,7 @@ parser PacketParser(
             (true, _, _): tls_complete;
             (false, true, _): tls_bounded_complete;
             (false, false, true): tls_extension_header;
-            default: valid_transport;
+            default: malformed_tls;
         }
     }
 
@@ -190,7 +235,7 @@ parser PacketParser(
         transition select(meta.tls_extension_bytes <= 1024 &&
             meta.tls_extension_bytes + 4 <= meta.tls_extensions_remaining) {
             true: tls_extension_kind;
-            false: valid_transport;
+            false: malformed_tls;
         }
     }
 
